@@ -1,0 +1,11 @@
+{
+  "name": "Sidequest — Your life, on the same page.",
+  "short_name": "Sidequest",
+  "description": "A calm shared planner for the life you are building together.",
+  "start_url": "/Sidequest/",
+  "scope": "/Sidequest/",
+  "display": "standalone",
+  "background_color": "#F7F4ED",
+  "theme_color": "#F7F4ED",
+  "icons": [{ "src": "/Sidequest/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
