@@ -74,7 +74,7 @@ function renderCalendar() {
 }
 function renderTasks() {
   const filters=[['open','To do'],['completed','Done'],['all','Everything']]; const list=state.tasks.filter(t=>state.taskFilter==='all'||(state.taskFilter==='completed'?t.completed:!t.completed)).sort((a,b)=>Number(a.completed)-Number(b.completed)||(a.due_at||'').localeCompare(b.due_at||''));
-  $('#view-tasks').innerHTML=`${heading('Tasks', 'The little things that make the bigger things happen.')}<div class="toolbar task-toolbar"><div class="filters">${filters.map(([value,label])=>`<button class="filter-chip ${state.taskFilter===value?'selected':''}" data-task-filter="${value}">${label}${value==='open'?` · ${state.tasks.filter(t=>!t.completed).length}`:''}</button>`).join('')}</div><div class="task-toolbar-actions"><button class="button secondary small" data-enable-reminders>Enable reminders</button><button class="button primary small" data-create="task">+ Add task</button></div></div><p class="tiny muted reminder-note">Allow notifications for reminders while Sidequest is open. Background reminders are not available yet.</p><div class="surface">${list.length?`<div class="list">${list.map(taskRow).join('')}</div>`:empty(state.taskFilter==='completed'?'Nothing completed just yet':'Your list is clear','Add a task and take it one step at a time.','✓')}</div>`;
+  $('#view-tasks').innerHTML=`${heading('Tasks', 'The little things that make the bigger things happen.')}<div class="toolbar task-toolbar"><div class="filters">${filters.map(([value,label])=>`<button class="filter-chip ${state.taskFilter===value?'selected':''}" data-task-filter="${value}">${label}${value==='open'?` · ${state.tasks.filter(t=>!t.completed).length}`:''}</button>`).join('')}</div><div class="task-toolbar-actions"><button class="button secondary small" data-enable-reminders>Enable background reminders</button><button class="button primary small" data-create="task">+ Add task</button></div></div><p class="tiny muted reminder-note">Get task reminders even when Sidequest is closed. Install the app first on iPhone.</p><div class="surface">${list.length?`<div class="list">${list.map(taskRow).join('')}</div>`:empty(state.taskFilter==='completed'?'Nothing completed just yet':'Your list is clear','Add a task and take it one step at a time.','✓')}</div>`;
 }
 function renderLists() {
   const kindLabels:Record<string,string>={grocery:'Groceries',packing:'Packing',custom:'Shared list'};
@@ -157,6 +157,8 @@ async function handleAuthenticatedUser(user: Row | null) {
       return;
     }
     clearInviteFromUrl();
+    const { error: metadataError } = await supabase!.auth.updateUser({ data: { sidequest_invite_token: null } });
+    if (metadataError) console.warn('Could not clear the consumed invite token from account metadata.', metadataError);
     notify('You’ve joined your shared space.');
   }
   await refresh();
@@ -183,7 +185,7 @@ async function saveItem(event:SubmitEvent) {
   const form=event.currentTarget as HTMLFormElement; const data=new FormData(form);const kind=$('#form-kind').textContent?.replace(/^(New|Edit) /,'') as Kind;const record=state.editing;const payload:Row={space_id:state.space.id};
   const title=formValue(data,'title');if(!title){notify('Add a title before saving.',true);return;}
   payload.title=title;payload.created_by=state.user.id;
-  if(kind==='task'){payload.description=formValue(data,'description')||null;payload.priority=formValue(data,'priority');payload.project_id=formValue(data,'project_id')||null;payload.assigned_to=formValue(data,'assigned_to')||null;payload.recurrence_rule=formValue(data,'recurrence_rule')||'none';const due=formValue(data,'due_at');const reminder=formValue(data,'reminder_at');payload.due_at=due?wallToIso(due):null;payload.reminder_at=reminder?wallToIso(reminder):null;payload.reminder_sent_at=null;payload.completed=record?.completed??false;}
+  if(kind==='task'){payload.description=formValue(data,'description')||null;payload.priority=formValue(data,'priority');payload.project_id=formValue(data,'project_id')||null;payload.assigned_to=formValue(data,'assigned_to')||null;payload.recurrence_rule=formValue(data,'recurrence_rule')||'none';const due=formValue(data,'due_at');const reminder=formValue(data,'reminder_at');payload.due_at=due?wallToIso(due):null;payload.reminder_at=reminder?wallToIso(reminder):null;payload.reminder_sent_at=null;payload.reminder_claimed_at=null;payload.completed=record?.completed??false;}
   if(kind==='event'){payload.description=formValue(data,'description')||null;payload.location=formValue(data,'location')||null;payload.visibility=formValue(data,'visibility');const allDay=data.get('all_day')==='on';const start=formValue(data,'starts_at');const end=formValue(data,'ends_at');payload.starts_at=wallToIso(allDay?`${start}T00:00`:start);payload.ends_at=end?wallToIso(allDay?`${end}T00:00`:end):null;payload.all_day=allDay;if(payload.ends_at&&payload.ends_at<payload.starts_at){notify('The end time needs to be after the start time.',true);return;}}
   if(kind==='project'){payload.description=formValue(data,'description')||null;payload.status=formValue(data,'status');payload.start_date=formValue(data,'start_date')||null;payload.target_date=formValue(data,'target_date')||null;if(payload.start_date&&payload.target_date&&payload.target_date<payload.start_date){notify('The target date must be after the start date.',true);return;}}
   if(kind==='goal'){payload.description=formValue(data,'description')||null;payload.target_date=formValue(data,'target_date')||null;payload.progress=Number(formValue(data,'progress'));if(!Number.isInteger(payload.progress)||payload.progress<0||payload.progress>100){notify('Progress must be a whole number from 0 to 100.',true);return;}}
@@ -207,22 +209,20 @@ async function enableReminders() {
   if(/iPhone|iPad|iPod/i.test(navigator.userAgent)&&!isInstalledPwa()){dialog('#install-dialog').showModal();notify('On iPhone, add Sidequest to your Home Screen before enabling notifications.');return;}
   const permission=await Notification.requestPermission();
   if(permission!=='granted'){notify('Notifications were not enabled.',true);return;}
-  notify('Reminders are enabled while Sidequest is open.');
-  await checkTaskReminders();
-}
-async function checkTaskReminders() {
-  if(!supabase||!state.user||!state.space||typeof Notification==='undefined'||Notification.permission!=='granted')return;
-  const due=state.tasks.filter((task:Row)=>!task.completed&&task.reminder_at&&!task.reminder_sent_at&&new Date(task.reminder_at).getTime()<=Date.now());
-  for(const task of due){
-    const sentAt=new Date().toISOString();
-    const {data,error}=await supabase.from('tasks').update({reminder_sent_at:sentAt}).eq('id',task.id).eq('space_id',state.space.id).is('reminder_sent_at',null).select('id').maybeSingle();
-    if(error){console.warn('Could not mark a reminder as sent.',error);continue;}
-    if(!data)continue;
-    if('serviceWorker'in navigator){const registration=await navigator.serviceWorker.ready;await registration.showNotification('Sidequest reminder',{body:task.title,icon:'/Sidequest/icons/icon.svg',tag:`task-${task.id}`,data:{url:'/Sidequest/?view=tasks'}});}
-    else new Notification('Sidequest reminder',{body:task.title});
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const { data, error } = await supabase!.functions.invoke('sidequest-reminders', { body: { action: 'public-key' } });
+    if (error || !data?.publicKey) throw error || new Error('Could not load the notification key.');
+    const subscription = await registration.pushManager.getSubscription() || await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeVapidKey(data.publicKey) });
+    const { error: saveError } = await supabase!.from('push_subscriptions').upsert({ endpoint: subscription.endpoint, subscription: subscription.toJSON() }, { onConflict: 'endpoint' });
+    if (saveError) throw saveError;
+    notify('Background reminders are ready on this device.');
+  } catch (error) {
+    console.error('Could not enable background reminders.', error);
+    notify('Could not enable reminders. Please try again.', true);
   }
-  if(due.length)await refresh();
 }
+function decodeVapidKey(value: string) { const padding='='.repeat((4-value.length%4)%4);const raw=atob((value+padding).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(raw,char=>char.charCodeAt(0)); }
 function bindEvents() {
   document.addEventListener('click',async event=>{const target=event.target as HTMLElement;const view=target.closest<HTMLElement>('[data-view]');if(view){setView(view.dataset.view!);return;}
     const create=target.closest<HTMLElement>('[data-create]');if(create){dialog('#add-dialog').close();openForm(create.dataset.create as Kind);return;}
@@ -250,15 +250,14 @@ function bindEvents() {
   $('#idea-form').addEventListener('submit',saveIdea);
   $('#install-button').addEventListener('click',async()=>{if(installPrompt){await installPrompt.prompt();const choice=await installPrompt.userChoice;installPrompt=null;if(choice?.outcome==='accepted')$('#install-button').hidden=true;}else dialog('#install-dialog').showModal();});
   $('#account-button').addEventListener('click',async()=>{if(!supabase)return;await supabase.auth.signOut();state.user=null;state.space=null;openAuth();});
-  $('#auth-toggle').addEventListener('click',()=>{const title=$('#auth-title');const button=$('#auth-submit');const signup=button.textContent==='Sign in';title.textContent=signup?'Create your account':'Welcome to Sidequest';button.textContent=signup?'Create account':'Sign in';$('#auth-toggle').textContent=signup?'Already have an account? Sign in':'New here? Create an account';});
-  $('#auth-form').addEventListener('submit',async event=>{event.preventDefault();if(!supabase)return;const form=event.currentTarget as HTMLFormElement;const data=new FormData(form);const email=formValue(data,'email');const password=formValue(data,'password');const signup=$('#auth-submit').textContent==='Create account';const redirect=new URL(window.location.pathname,window.location.origin);if(pendingInvite)redirect.searchParams.set('invite',pendingInvite);const result=signup?await supabase.auth.signUp({email,password,options:{emailRedirectTo:redirect.toString()}}):await supabase.auth.signInWithPassword({email,password});if(result.error){notify(result.error.message,true);return;}if(signup&&!result.data.session){dialog('#auth-dialog').close();notify('Check your email to confirm your account, then open the invite link again.');return;}dialog('#auth-dialog').close();await handleAuthenticatedUser(result.data.user);});
+  $('#auth-toggle').addEventListener('click',()=>{if(!pendingInvite)return;const title=$('#auth-title');const button=$('#auth-submit');const signup=button.textContent==='Sign in';title.textContent=signup?'Create your account':'You’ve been invited';button.textContent=signup?'Create account':'Sign in';$('#auth-toggle').textContent=signup?'Already have an account? Sign in':'New here? Create an account';});
+  $('#auth-form').addEventListener('submit',async event=>{event.preventDefault();if(!supabase)return;const form=event.currentTarget as HTMLFormElement;const data=new FormData(form);const email=formValue(data,'email');const password=formValue(data,'password');const signup=$('#auth-submit').textContent==='Create account';if(signup&&!pendingInvite){notify('Use Angie’s invite link to create an account.',true);return;}const redirect=new URL(window.location.pathname,window.location.origin);if(pendingInvite)redirect.searchParams.set('invite',pendingInvite);const result=signup?await supabase.auth.signUp({email,password,options:{emailRedirectTo:redirect.toString(),data:{sidequest_invite_token:pendingInvite}}}):await supabase.auth.signInWithPassword({email,password});if(result.error){notify(result.error.message,true);return;}if(signup&&!result.data.session){dialog('#auth-dialog').close();notify('Check your email to confirm your account, then open the invite link again.');return;}dialog('#auth-dialog').close();await handleAuthenticatedUser(result.data.user);});
   $('#space-form').addEventListener('submit',async event=>{event.preventDefault();if(!supabase||!state.user)return;const form=event.currentTarget as HTMLFormElement;const name=formValue(new FormData(form),'name')||'Our space';const {error}=await supabase.from('spaces').insert({name,owner_id:state.user.id,timezone:TZ});if(error){notify(error.message,true);return;}dialog('#space-dialog').close();notify('Your space is ready.');await refresh();});
   $('#invite-form').addEventListener('submit',async event=>{event.preventDefault();if(!supabase||!state.space)return;const form=event.currentTarget as HTMLFormElement;const email=formValue(new FormData(form),'email');const button=$('#invite-submit') as HTMLButtonElement;button.disabled=true;button.textContent='Creating link…';const {data,error}=await supabase.rpc('create_space_invitation',{p_space_id:state.space.id,p_invited_email:email});button.disabled=false;button.textContent='Create invite link';if(error){notify(error.message,true);return;}const link=new URL(window.location.pathname,window.location.origin);link.searchParams.set('invite',String(data));$('#invite-link').setAttribute('value',link.toString());$('#invite-result').hidden=false;notify('Your one-use invite link is ready.');});
   $('#copy-invite').addEventListener('click',async()=>{const link=$('#invite-link') as HTMLInputElement;try{await navigator.clipboard.writeText(link.value);notify('Invite link copied.');}catch{link.focus();link.select();notify('Select and copy the invite link.');}});
 }
 async function init() {
   bindEvents();setView('today');
-  window.setInterval(()=>{void checkTaskReminders();},30_000);
   const installButton=$('#install-button') as HTMLButtonElement;
   const isInstalled=window.matchMedia('(display-mode: standalone)').matches||(navigator as Navigator&{standalone?:boolean}).standalone===true;
   installButton.hidden=isInstalled;
@@ -267,7 +266,7 @@ async function init() {
   dialog('#auth-dialog').addEventListener('cancel',event=>{if(!state.user)event.preventDefault();});
   dialog('#space-dialog').addEventListener('cancel',event=>{if(state.user&&!state.space)event.preventDefault();});
   if(!configured){$('#app').hidden=true;document.body.insertAdjacentHTML('beforeend',`<div class="auth-screen"><a class="brand auth-brand"><span class="brand-mark">s</span><span>sidequest</span></a><div class="dialog-card"><p class="eyebrow">A little space for two</p><h1>Your life, on the same page.</h1><p class="muted">Sidequest is ready to connect to your shared planner. Add the Supabase URL and publishable key to <code>.env.local</code> to get started.</p><p class="auth-footer">Your Supabase project is configured through environment variables. Never put a service role key here.</p></div></div>`);return;}
-  if(pendingInvite){$('#auth-title').textContent='You’ve been invited';$('#auth-description').textContent='Use the invited email address to sign in or create your account and join your shared space.';}
+  if(pendingInvite){$('#auth-title').textContent='You’ve been invited';$('#auth-description').textContent='Use the invited email address to sign in or create your account and join your shared space.';}else{$('#auth-toggle').hidden=true;$('#auth-description').textContent='Sign in to open your private shared planner. New accounts require a partner invite.';}
   supabase!.auth.onAuthStateChange((_event,session)=>{void handleAuthenticatedUser(session?.user||null);});
   const {data:{session},error:sessionError}=await supabase!.auth.getSession();
   if(sessionError)notify('Could not restore your saved sign-in. Please sign in again.',true);

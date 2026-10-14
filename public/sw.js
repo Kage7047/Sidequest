@@ -1,5 +1,16 @@
 const CACHE = 'sidequest-shell-v1';
 const SHELL = ['/Sidequest/', '/Sidequest/manifest.webmanifest', '/Sidequest/icons/icon.svg'];
+self.addEventListener('push', event => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch { payload = { body: event.data?.text() || 'A task is ready when you are.' }; }
+  event.waitUntil(self.registration.showNotification(payload.title || 'Sidequest reminder', {
+    body: payload.body || 'A task is ready when you are.',
+    icon: '/Sidequest/icons/icon.svg',
+    badge: '/Sidequest/icons/icon.svg',
+    tag: payload.tag || 'sidequest-reminder',
+    data: { url: payload.url || '/Sidequest/?view=tasks' },
+  }));
+});
 self.addEventListener('notificationclick', event => {
   const requested = event.notification.data && event.notification.data.url;
   event.notification.close();
