@@ -12,6 +12,8 @@ Your life, on the same page. Sidequest is a small, private shared planner for tw
 - Email and password sign-in through Supabase Auth.
 - Private space creation for an authenticated user. The existing database trigger adds the owner as a member.
 - Single-use partner invitations tied to the invited email. Owners can create a link that expires in seven days; the invitee must confirm that email, then accept the invite while signed in with it.
+- Signup is restricted by a Supabase Before User Created Auth Hook: only a valid, unused invite for that email can create an account.
+- Optional background Web Push reminders, delivered by a Supabase Edge Function every five minutes.
 - Installable PWA shell, with Android home-screen shortcuts for adding a task and opening lists.
 
 ## Local development
@@ -41,7 +43,9 @@ Email/password sign-in and account creation use Supabase Auth. If email confirma
 
 The first account signs in and creates the space. Use **Invite partner** to create a one-use link for the partner’s email, then share it privately. The partner opens the link, creates an account using that same email, confirms it, and signs in. The server consumes the invitation and adds the member. Invitation hashes stay in the private schema; the browser never writes to `space_members` directly. The email message itself is shared manually; the project does not have an outbound email sender configured for invitations.
 
-Dates are displayed in `Europe/Warsaw`; date-time form values are converted to UTC instants using that zone before persistence. Reminders use browser notifications while Sidequest is open. Background reminders need a separately secured server-side push service. The service worker caches only the static shell and same-origin build assets. It does not cache Supabase Auth or database responses, and edits require a network connection.
+Dates are displayed in `Europe/Warsaw`; date-time form values are converted to UTC instants using that zone before persistence. Background reminders require an installed PWA on iOS and a push-capable browser on Android. Enable them from Tasks on each device. The service worker caches only the static shell and same-origin build assets. It does not cache Supabase Auth or database responses, and edits require a network connection.
+
+The Supabase project also needs the `Before User Created` hook enabled in Authentication → Hooks and pointed at `public.before_user_created_require_invite`. Its function is created by `20261014170000_private_signup_and_push_reminders.sql`. The same migration stores push subscriptions with per-user RLS and adds a narrowly scoped service-role reminder claim function. The `sidequest-reminders` Edge Function uses a custom cron secret checked before dispatch; the public-key action returns only the VAPID public key. A `pg_cron` job invokes dispatch every five minutes and reads the secret from the service-only `push_config` table. VAPID keys and cron secret are generated per project and must not be added to the repository.
 
 ## GitHub Pages deployment
 
@@ -66,6 +70,7 @@ The GitHub Actions workflow runs both checks before deployment. The PWA service 
 ## Current limits
 
 - Supabase Authentication URL Configuration must include the Pages redirect URL above; otherwise email confirmation may not return to the app. Real account flows need to be confirmed with your and Angie’s accounts.
-- Calendar is a weekly agenda; there is no external calendar sync, recurring events, background push reminders, or offline editing.
+- Background push delivery is best effort and the scheduled poll runs every five minutes; operating-system notification settings still apply.
+- Calendar is a weekly agenda; there is no external calendar sync, recurring events, or offline editing.
 - A web app can install as an app and provide Android icon shortcuts, but a glanceable iPhone or Android home-screen widget requires native app/widget work.
 - This is a static frontend. A publishable key is expected in the public build; RLS and Auth must remain enabled in Supabase.
