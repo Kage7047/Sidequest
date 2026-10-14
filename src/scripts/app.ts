@@ -3,6 +3,9 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 type Row = Record<string, any>;
 type Kind = 'task' | 'event' | 'project' | 'goal';
 const TZ = 'Europe/Warsaw';
+let pendingInvite = new URLSearchParams(window.location.search).get('invite');
+let handledUserId: string | null = null;
+let acceptingInvite = false;
 const configured = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY);
 const supabase: SupabaseClient | null = configured ? createClient(import.meta.env.PUBLIC_SUPABASE_URL, import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY) : null;
 const state: { user: any; space: Row | null; events: Row[]; tasks: Row[]; projects: Row[]; goals: Row[]; view: string; calendarOffset: number; taskFilter: string; planTab: string; editing?: Row } = {
@@ -73,10 +76,15 @@ function render() { renderToday(); renderCalendar(); renderTasks(); renderPlans(
 async function refresh() {
   if (!supabase || !state.user) return;
   loading('Opening your space…');
-  const { data: space, error: spaceError } = await supabase.from('spaces').select('id,name,timezone').limit(1).maybeSingle();
+  const { data: space, error: spaceError } = await supabase.from('spaces').select('id,name,timezone,owner_id').limit(1).maybeSingle();
   if (spaceError) { notify(spaceError.message, true); return; }
   state.space = space;
   $('#space-name').textContent = space?.name || 'Our space';
+  if (space) {
+    const { data: members, error: membersError } = await supabase.from('space_members').select('user_id').eq('space_id', space.id);
+    if (membersError) { notify(membersError.message, true); return; }
+    $('#invite-button').hidden = space.owner_id !== state.user.id || (members?.length || 0) >= 2;
+  } else $('#invite-button').hidden = true;
   if (!space) { dialog('#space-dialog').showModal(); return; }
   const [events, tasks, projects, goals] = await Promise.all([
     supabase.from('events').select('*').eq('space_id',space.id).order('starts_at'),
@@ -90,6 +98,40 @@ async function refresh() {
 }
 function setView(view: string) { state.view=view; document.querySelectorAll('.view').forEach(node=>node.classList.toggle('active-view',node.id===`view-${view}`));document.querySelectorAll('[data-view]').forEach(node=>node.classList.toggle('active',node.getAttribute('data-view')===view)); }
 function openAuth() { if (!configured) { notify('Add your Supabase URL and publishable key in .env.local to connect.', true); return; } dialog('#auth-dialog').showModal(); }
+function clearInviteFromUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('invite');
+  window.history.replaceState({}, '', url);
+  pendingInvite = null;
+}
+async function handleAuthenticatedUser(user: Row | null) {
+  state.user = user;
+  if (!user) {
+    handledUserId = null;
+    $('#account-button').hidden = true;
+    $('#invite-button').hidden = true;
+    state.space = null; state.events = []; state.tasks = []; state.projects = []; state.goals = [];
+    render();
+    return;
+  }
+  $('#account-button').hidden = false;
+  if (handledUserId === user.id) return;
+  handledUserId = user.id;
+  if (pendingInvite && !acceptingInvite) {
+    acceptingInvite = true;
+    const { error } = await supabase!.rpc('accept_space_invitation', { p_token: pendingInvite });
+    acceptingInvite = false;
+    if (error) {
+      handledUserId = null;
+      notify('Invite not accepted. Sign in with the invited email address and try again.', true);
+      if (!dialog('#auth-dialog').open) openAuth();
+      return;
+    }
+    clearInviteFromUrl();
+    notify('You’ve joined your shared space.');
+  }
+  await refresh();
+}
 function input(name:string,label:string,type='text',value='',options:Record<string,string>={}) { const attrs=Object.entries(options).map(([key,val])=>`${key}="${escapeHtml(val)}"`).join(' '); return `<label>${label}<input name="${name}" type="${type}" value="${escapeHtml(value)}" ${attrs} /></label>`; }
 function textarea(name:string,label:string,value='') { return `<label class="wide">${label}<textarea name="${name}" maxlength="1000">${escapeHtml(value)}</textarea></label>`; }
 function select(name:string,label:string,options:Array<[string,string]>,value:string) { return `<label>${label}<select name="${name}">${options.map(([v,l])=>`<option value="${v}" ${value===v?'selected':''}>${l}</option>`).join('')}</select></label>`; }
@@ -133,21 +175,25 @@ function bindEvents() {
     if(target.closest('[data-calendar-day]')){state.calendarOffset=0;renderCalendar();}
   });
   $('#add-button').addEventListener('click',()=>dialog('#add-dialog').showModal());
+  $('#invite-button').addEventListener('click',()=>{($('#invite-form') as HTMLFormElement).reset();$('#invite-result').hidden=true;dialog('#invite-dialog').showModal();});
   document.querySelectorAll('[data-close]').forEach(button=>button.addEventListener('click',()=>button.closest('dialog')?.close()));
   document.querySelectorAll<HTMLElement>('[data-create]').forEach(()=>{});
   $('#item-form').addEventListener('submit',saveItem);
   $('#account-button').addEventListener('click',async()=>{if(!supabase)return;await supabase.auth.signOut();state.user=null;state.space=null;openAuth();});
   $('#auth-toggle').addEventListener('click',()=>{const title=$('#auth-title');const button=$('#auth-submit');const signup=button.textContent==='Sign in';title.textContent=signup?'Create your account':'Welcome to Sidequest';button.textContent=signup?'Create account':'Sign in';$('#auth-toggle').textContent=signup?'Already have an account? Sign in':'New here? Create an account';});
-  $('#auth-form').addEventListener('submit',async event=>{event.preventDefault();if(!supabase)return;const form=event.currentTarget as HTMLFormElement;const data=new FormData(form);const email=formValue(data,'email');const password=formValue(data,'password');const signup=$('#auth-submit').textContent==='Create account';const result=signup?await supabase.auth.signUp({email,password}):await supabase.auth.signInWithPassword({email,password});if(result.error){notify(result.error.message,true);return;}if(signup&&!result.data.session){dialog('#auth-dialog').close();notify('Check your email to confirm your account, then sign in.');return;}state.user=result.data.user;dialog('#auth-dialog').close();await refresh();});
-  $('#space-form').addEventListener('submit',async event=>{event.preventDefault();if(!supabase||!state.user)return;const form=event.currentTarget as HTMLFormElement;const name=formValue(new FormData(form),'name')||'Our space';const {data,error}=await supabase.from('spaces').insert({name,owner_id:state.user.id,timezone:TZ}).select('id,name,timezone').single();if(error){notify(error.message,true);return;}state.space=data;dialog('#space-dialog').close();notify('Your space is ready.');await refresh();});
+  $('#auth-form').addEventListener('submit',async event=>{event.preventDefault();if(!supabase)return;const form=event.currentTarget as HTMLFormElement;const data=new FormData(form);const email=formValue(data,'email');const password=formValue(data,'password');const signup=$('#auth-submit').textContent==='Create account';const redirect=new URL(window.location.pathname,window.location.origin);if(pendingInvite)redirect.searchParams.set('invite',pendingInvite);const result=signup?await supabase.auth.signUp({email,password,options:{emailRedirectTo:redirect.toString()}}):await supabase.auth.signInWithPassword({email,password});if(result.error){notify(result.error.message,true);return;}if(signup&&!result.data.session){dialog('#auth-dialog').close();notify('Check your email to confirm your account, then open the invite link again.');return;}dialog('#auth-dialog').close();await handleAuthenticatedUser(result.data.user);});
+  $('#space-form').addEventListener('submit',async event=>{event.preventDefault();if(!supabase||!state.user)return;const form=event.currentTarget as HTMLFormElement;const name=formValue(new FormData(form),'name')||'Our space';const {data,error}=await supabase.from('spaces').insert({name,owner_id:state.user.id,timezone:TZ}).select('id,name,timezone,owner_id').single();if(error){notify(error.message,true);return;}state.space=data;dialog('#space-dialog').close();notify('Your space is ready.');await refresh();});
+  $('#invite-form').addEventListener('submit',async event=>{event.preventDefault();if(!supabase||!state.space)return;const form=event.currentTarget as HTMLFormElement;const email=formValue(new FormData(form),'email');const button=$('#invite-submit') as HTMLButtonElement;button.disabled=true;button.textContent='Creating link…';const {data,error}=await supabase.rpc('create_space_invitation',{p_space_id:state.space.id,p_invited_email:email});button.disabled=false;button.textContent='Create invite link';if(error){notify(error.message,true);return;}const link=new URL(window.location.pathname,window.location.origin);link.searchParams.set('invite',String(data));$('#invite-link').setAttribute('value',link.toString());$('#invite-result').hidden=false;notify('Your one-use invite link is ready.');});
+  $('#copy-invite').addEventListener('click',async()=>{const link=$('#invite-link') as HTMLInputElement;try{await navigator.clipboard.writeText(link.value);notify('Invite link copied.');}catch{link.focus();link.select();notify('Select and copy the invite link.');}});
 }
 async function init() {
   bindEvents();setView('today');
   dialog('#auth-dialog').addEventListener('cancel',event=>{if(!state.user)event.preventDefault();});
   dialog('#space-dialog').addEventListener('cancel',event=>{if(state.user&&!state.space)event.preventDefault();});
   if(!configured){$('#app').hidden=true;document.body.insertAdjacentHTML('beforeend',`<div class="auth-screen"><a class="brand auth-brand"><span class="brand-mark">s</span><span>sidequest</span></a><div class="dialog-card"><p class="eyebrow">A little space for two</p><h1>Your life, on the same page.</h1><p class="muted">Sidequest is ready to connect to your shared planner. Add the Supabase URL and publishable key to <code>.env.local</code> to get started.</p><p class="auth-footer">Your Supabase project is configured through environment variables. Never put a service role key here.</p></div></div>`);return;}
+  if(pendingInvite){$('#auth-title').textContent='You’ve been invited';$('#auth-description').textContent='Use the invited email address to sign in or create your account and join your shared space.';}
+  supabase!.auth.onAuthStateChange((_event,session)=>{void handleAuthenticatedUser(session?.user||null);});
   state.user=(await supabase!.auth.getUser()).data.user;
-  supabase!.auth.onAuthStateChange((_event,session)=>{state.user=session?.user||null;if(state.user){$('#account-button').hidden=false;void refresh();}else{$('#account-button').hidden=true;state.space=null;state.events=[];state.tasks=[];state.projects=[];state.goals=[];render();}});
-  if(state.user){$('#account-button').hidden=false;await refresh();}else openAuth();
+  if(state.user) await handleAuthenticatedUser(state.user); else openAuth();
 }
 void init();
