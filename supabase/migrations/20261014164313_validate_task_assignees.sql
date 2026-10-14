@@ -17,6 +17,7 @@ $$;
 
 revoke all on function public.ensure_task_assignee_is_member() from public, anon;
 grant execute on function public.ensure_task_assignee_is_member() to authenticated;
+drop trigger if exists ensure_task_assignee_is_member on public.tasks;
 create trigger ensure_task_assignee_is_member
 before insert or update of assigned_to, space_id on public.tasks
 for each row execute function public.ensure_task_assignee_is_member();
