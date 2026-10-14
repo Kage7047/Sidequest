@@ -1,5 +1,19 @@
 const CACHE = 'sidequest-shell-v1';
 const SHELL = ['/Sidequest/', '/Sidequest/manifest.webmanifest', '/Sidequest/icons/icon.svg'];
+self.addEventListener('notificationclick', event => {
+  const requested = event.notification.data && event.notification.data.url;
+  event.notification.close();
+  event.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+    const destination = new URL(requested || '/Sidequest/', self.location.origin);
+    const safeUrl = destination.origin === self.location.origin ? destination.href : new URL('/Sidequest/', self.location.origin).href;
+    const existing = clientList.find(client => 'focus' in client);
+    if (existing) {
+      if ('navigate' in existing) void existing.navigate(safeUrl);
+      return existing.focus();
+    }
+    return self.clients.openWindow(safeUrl);
+  }));
+});
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
 });

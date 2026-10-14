@@ -6,12 +6,13 @@ Your life, on the same page. Sidequest is a small, private shared planner for tw
 
 - Today overview with today's events, overdue and due-today tasks, active projects, and goals.
 - Weekly calendar agenda with shared and personal event labels, all-day events, date, time, and location.
-- Tasks with priorities, due dates, project links, completion, and reopening.
+- Tasks with priorities, due dates, assignment, repeating schedules, reminders, project links, completion, and reopening.
+- Shared grocery, packing, and custom lists, plus a shared someday list for date ideas, places, and activities.
 - Projects and goals with status, dates, progress, and editing.
 - Email and password sign-in through Supabase Auth.
 - Private space creation for an authenticated user. The existing database trigger adds the owner as a member.
 - Single-use partner invitations tied to the invited email. Owners can create a link that expires in seven days; the invitee must confirm that email, then accept the invite while signed in with it.
-- Installable PWA shell and GitHub Pages deployment workflow.
+- Installable PWA shell, with Android home-screen shortcuts for adding a task and opening lists.
 
 ## Local development
 
@@ -34,13 +35,13 @@ Astro serves the app at `http://localhost:4321/`. The static production build us
 
 ## Supabase setup and data notes
 
-The app uses the existing `spaces`, `space_members`, `events`, `tasks`, `projects`, and `goals` tables. It scopes each query by the visible space ID and relies on RLS for actual authorization. The live database has RLS enabled on all six tables. Its event SELECT policy makes shared events visible to space members and personal events visible only to their creator. The `private.is_space_member(uuid)` helper and the owner-membership trigger are already present. The additive invitation migrations create a private token-hash table and restricted RPC functions; they do not change the existing RLS policies or permit browser writes to `space_members`.
+The app uses the existing `spaces`, `space_members`, `events`, `tasks`, `projects`, and `goals` tables, plus `shared_lists`, `shared_list_items`, and `shared_ideas`. It scopes each query by the visible space ID and relies on RLS for actual authorization. Shared planning tables are protected by member-scoped RLS policies. Tasks can be assigned only to a member of their space. Completing a repeating task creates the next occurrence in the database. The event SELECT policy makes shared events visible to space members and personal events visible only to their creator. The `private.is_space_member(uuid)` helper and owner-membership trigger are already present. The invitation migrations create a private token-hash table and restricted RPC functions; browser writes to `space_members` are not allowed.
 
 Email/password sign-in and account creation use Supabase Auth. If email confirmation is enabled, users must confirm through the email before signing in. In Supabase Authentication → URL Configuration, add `http://localhost:4321/**` and `https://kage7047.github.io/Sidequest/**` to the allowed redirect URLs. Set the Site URL to `https://kage7047.github.io/Sidequest/` so email confirmation returns to the app.
 
 The first account signs in and creates the space. Use **Invite partner** to create a one-use link for the partner’s email, then share it privately. The partner opens the link, creates an account using that same email, confirms it, and signs in. The server consumes the invitation and adds the member. Invitation hashes stay in the private schema; the browser never writes to `space_members` directly. The email message itself is shared manually; the project does not have an outbound email sender configured for invitations.
 
-Dates are displayed in `Europe/Warsaw`; date-time form values are converted to UTC instants using that zone before persistence. The service worker caches only the static shell and same-origin build assets. It does not cache Supabase Auth or database responses, and edits require a network connection.
+Dates are displayed in `Europe/Warsaw`; date-time form values are converted to UTC instants using that zone before persistence. Reminders use browser notifications while Sidequest is open. Background reminders need a separately secured server-side push service. The service worker caches only the static shell and same-origin build assets. It does not cache Supabase Auth or database responses, and edits require a network connection.
 
 ## GitHub Pages deployment
 
@@ -64,6 +65,7 @@ The GitHub Actions workflow runs both checks before deployment. The PWA service 
 
 ## Current limits
 
-- Supabase Authentication URL Configuration must include the Pages redirect URL above; otherwise email confirmation may not return to the app. Authentication and CRUD have not been tested with real user accounts.
-- Calendar is a weekly agenda; there is no external calendar sync, recurring events, push notification, or offline editing.
+- Supabase Authentication URL Configuration must include the Pages redirect URL above; otherwise email confirmation may not return to the app. Real account flows need to be confirmed with your and Angie’s accounts.
+- Calendar is a weekly agenda; there is no external calendar sync, recurring events, background push reminders, or offline editing.
+- A web app can install as an app and provide Android icon shortcuts, but a glanceable iPhone or Android home-screen widget requires native app/widget work.
 - This is a static frontend. A publishable key is expected in the public build; RLS and Auth must remain enabled in Supabase.
