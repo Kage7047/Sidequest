@@ -15,6 +15,8 @@ const text = (body: string, status = 200) => new Response(body, { status, header
 const dateKey = (date: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
 const icsDate = (key: string) => key.replaceAll('-', '');
 const icsInstant = (date: Date) => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+// Warsaw wall-clock time, for repeating events: a UTC start would drift an hour at each DST change.
+const icsLocal = (date: Date) => { const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(date).map(x => [x.type, x.value])); return `${p.year}${p.month}${p.day}T${p.hour}${p.minute}${p.second}`; };
 const nextDay = (key: string) => { const date = new Date(`${key}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + 1); return date.toISOString().slice(0, 10); };
 const escapeText = (value: string) => value.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
 function fold(line: string) {
@@ -70,7 +72,8 @@ Deno.serve(async (request: Request) => {
       lines.push(`DTSTART;VALUE=DATE:${icsDate(first)}`, `DTEND;VALUE=DATE:${icsDate(nextDay(last < first ? first : last))}`);
     } else {
       const end = event.ends_at ? new Date(event.ends_at) : new Date(start.getTime() + 3600000);
-      lines.push(`DTSTART:${icsInstant(start)}`, `DTEND:${icsInstant(end)}`);
+      if (event.recurrence && event.recurrence !== 'none') lines.push(`DTSTART;TZID=${TZ}:${icsLocal(start)}`, `DTEND;TZID=${TZ}:${icsLocal(end)}`);
+      else lines.push(`DTSTART:${icsInstant(start)}`, `DTEND:${icsInstant(end)}`);
     }
     const freq = ({ weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' } as Record<string, string>)[event.recurrence || ''];
     if (freq) lines.push(`RRULE:FREQ=${freq}${event.repeat_until ? `;UNTIL=${event.all_day ? icsDate(event.repeat_until) : `${icsDate(event.repeat_until)}T235959Z`}` : ''}`);
