@@ -9,4 +9,8 @@ if [ "$major" -lt 22 ]; then
   for dir in "$HOME"/.nvm/versions/node/v22*/bin; do [ -x "$dir/node" ] && PATH="$dir:$PATH"; done
 fi
 echo "pre-push: npm run check"
-npm run check --silent >/tmp/sidequest-check.log 2>&1 || { grep -E "error|Result" /tmp/sidequest-check.log | tail -20; echo "pre-push: type check failed (full log: /tmp/sidequest-check.log)"; exit 1; }
+log=$(mktemp "${TMPDIR:-/tmp}/sidequest-check.XXXXXX") || exit 1
+if npm run check --silent >"$log" 2>&1; then rm -f "$log"; exit 0; fi
+grep -E "error|Result|Node" "$log" | tail -20
+echo "pre-push: type check failed (full log: $log)"
+exit 1
