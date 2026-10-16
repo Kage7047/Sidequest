@@ -9,7 +9,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.57.4';
 const TZ = 'Europe/Warsaw';
 const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false, autoRefreshToken: false } });
 
-type Event = { id: string; space_id: string; title: string; description: string | null; location: string | null; visibility: string; all_day: boolean; starts_at: string; ends_at: string | null; created_by: string; person: string | null; updated_at?: string | null; created_at?: string | null };
+type Event = { id: string; space_id: string; title: string; description: string | null; location: string | null; visibility: string; all_day: boolean; starts_at: string; ends_at: string | null; created_by: string; person: string | null; recurrence?: string; repeat_until?: string | null; updated_at?: string | null; created_at?: string | null };
 
 const text = (body: string, status = 200) => new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 const dateKey = (date: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
@@ -51,7 +51,7 @@ Deno.serve(async (request: Request) => {
 
   const since = new Date(Date.now() - 90 * 86400000).toISOString();
   const { data: events, error: eventError } = spaceIds.length
-    ? await supabase.from('events').select('*').in('space_id', spaceIds).or(`ends_at.gte.${since},and(ends_at.is.null,starts_at.gte.${since})`).order('starts_at')
+    ? await supabase.from('events').select('*').in('space_id', spaceIds).or(`ends_at.gte.${since},and(ends_at.is.null,starts_at.gte.${since}),recurrence.neq.none`).order('starts_at')
     : { data: [], error: null };
   if (eventError) return text('Could not load calendar', 500);
 
@@ -72,6 +72,8 @@ Deno.serve(async (request: Request) => {
       const end = event.ends_at ? new Date(event.ends_at) : new Date(start.getTime() + 3600000);
       lines.push(`DTSTART:${icsInstant(start)}`, `DTEND:${icsInstant(end)}`);
     }
+    const freq = ({ weekly: 'WEEKLY', monthly: 'MONTHLY', yearly: 'YEARLY' } as Record<string, string>)[event.recurrence || ''];
+    if (freq) lines.push(`RRULE:FREQ=${freq}${event.repeat_until ? `;UNTIL=${event.all_day ? icsDate(event.repeat_until) : `${icsDate(event.repeat_until)}T235959Z`}` : ''}`);
     if (!hidden && event.location) lines.push(`LOCATION:${escapeText(event.location)}`);
     if (!hidden && event.description) lines.push(`DESCRIPTION:${escapeText(event.description)}`);
     if (hidden || event.visibility === 'personal') lines.push('CLASS:PRIVATE');
