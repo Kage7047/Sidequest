@@ -69,6 +69,12 @@ npm run check
 npm run build
 ```
 
+To run the check automatically before every push (recommended — it is what CI runs), enable the repo hook once per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
+
 The GitHub Actions workflow runs both checks before deployment. The PWA service worker and manifest use the production `/Sidequest/` base path.
 
 ## Current limits
