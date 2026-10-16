@@ -144,3 +144,14 @@ body{background:radial-gradient(ellipse at 84% 4%,#e8e5d8 0,transparent 34rem),#
   .month-chip.task{border-radius:2px}
   .month-more{font-size:9px}
 }
+
+/* Grouped tasks, coming up, list footer */
+.task-group+.task-group{margin-top:14px}
+.task-group-title{font-size:11px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;color:#83857a;margin:4px 4px 6px}
+.task-group-title.overdue{color:#b4664a}
+.task-group-title .count{font-weight:600;color:#a5a69b;margin-left:4px}
+.coming-day{font-size:10.5px;font-weight:750;letter-spacing:.06em;text-transform:uppercase;color:#9a9b91;margin:10px 4px 2px}
+.coming-day:first-child{margin-top:0}
+.list-footer{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:8px;border-top:1px solid #f0ece4}
+.muted-action{color:#a5a69b}
+.muted-action:hover{color:#b4664a}
