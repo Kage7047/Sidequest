@@ -51,11 +51,13 @@ as $function$
     returning event_id, occurs_at
   )
   select due.id, due.space_id, due.title, due.occurs_at,
-    case
-      when due.visibility = 'personal' then array[due.created_by]
-      when due.person is not null then array[due.person]
-      else array(select sm.user_id from public.space_members sm where sm.space_id = due.space_id)
-    end
+    -- Only current members of the space are ever sent a reminder.
+    array(
+      select sm.user_id from public.space_members sm
+      where sm.space_id = due.space_id
+        and (due.visibility <> 'personal' or sm.user_id = due.created_by)
+        and (due.visibility = 'personal' or due.person is null or sm.user_id = due.person)
+    )
   from due join claimed on claimed.event_id = due.id and claimed.occurs_at = due.occurs_at;
 $function$;
 revoke all on function public.claim_due_event_reminders(integer) from public, anon, authenticated;
