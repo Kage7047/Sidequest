@@ -160,3 +160,4 @@ body{background:radial-gradient(ellipse at 84% 4%,#e8e5d8 0,transparent 34rem),#
 .cal-entry.shift .row-title::before{content:'◷ ';color:var(--who)}.month-chip.shift{font-weight:700}
 @media(max-width:780px){.mobile-nav .nav-item{min-width:0;padding:6px 6px}}
 .free-calendar{margin-top:22px}.free-slot{align-items:center}
+.load-card{display:grid;gap:12px}.load-row{display:grid;grid-template-columns:70px 1fr;gap:4px 10px;align-items:center;font-size:12px}.load-row small{grid-column:2;font-size:10px;color:#8b8d82}.load-bar{height:8px;border-radius:99px;background:#eeece5;overflow:hidden}.load-bar span{display:block;height:100%;border-radius:99px;background:var(--who)}.week-link{margin-right:auto}
