@@ -33,7 +33,7 @@ function localJson<T>(key:string,fallback:T):T { try { const value=localStorage.
 function localSet(key:string,value:unknown) { try { localStorage.setItem(key,typeof value==='string'?value:JSON.stringify(value)); } catch {} }
 const snapshotKey=(userId:string)=>`sidequest:snapshot:${userId}`;
 const outboxKey=(userId:string)=>`sidequest:task-outbox:${userId}`;
-function updateOfflineStatus() { const banner=$('#offline-status');if(!banner)return;banner.hidden=!state.offline;banner.textContent=state.offline?'Offline — new tasks are saved on this phone and will sync when you reconnect.':''; }
+function updateOfflineStatus() { const banner=$('#offline-status');if(!banner)return;banner.hidden=!state.offline;banner.textContent=state.offline?'Offline — new tasks and list changes are saved on this phone and will sync when you reconnect.':''; }
 function cacheSnapshot() { if(!state.user||!state.space)return;localSet(snapshotKey(state.user.id),{space:state.space,events:state.events,busy:state.busy,tasks:state.tasks.filter(task=>!task.offline_pending),projects:state.projects,goals:state.goals,members:state.members,lists:state.lists,ideas:state.ideas,listItems:state.listItems,activity:state.activity,shifts:state.shifts}); }
 function restoreSnapshot() { if(!state.user)return false;const saved=localJson<Row|null>(snapshotKey(state.user.id),null);if(!saved?.space)return false;const space=saved.space as Row;state.space=space;state.events=saved.events||[];state.busy=saved.busy||[];state.tasks=[...(saved.tasks||[]),...localJson<Row[]>(outboxKey(state.user.id),[])];state.projects=saved.projects||[];state.goals=saved.goals||[];state.members=saved.members||[];state.lists=saved.lists||[];state.ideas=saved.ideas||[];state.listItems=saved.listItems||[];state.activity=saved.activity||[];state.shifts=saved.shifts||[];state.offline=true;$('#space-name').textContent=space.name||'Our space';render();updateOfflineStatus();return true; }
 function isNetworkError(error:unknown) { const message=String((error as any)?.message||error||'');return !navigator.onLine||/failed to fetch|network request failed|fetch failed|load failed/i.test(message); }
@@ -292,6 +292,8 @@ async function refresh() {
   if (!supabase || !state.user) return;
   // Only the first load shows a loading screen; later refreshes update in place. When
   // refreshes overlap, only the most recently started one is applied.
+  // Queued list changes go out first, so the fresh copy from the server already includes them.
+  if (navigator.onLine) await flushListOutbox();
   const seq = ++refreshSeq;
   if (!state.space) loading('Opening your space…');
   const { data: space, error: spaceError } = await supabase.from('spaces').select('id,name,timezone,owner_id').limit(1).maybeSingle();
@@ -460,7 +462,7 @@ async function saveItem(event:SubmitEvent) {
 }
 function continueAddingTask(form:HTMLFormElement) { const keep=form.querySelector<HTMLInputElement>('[name="add_another"]');form.reset();if(keep)keep.checked=true;const assignee=form.querySelector<HTMLSelectElement>('[name="assigned_to"]');if(assignee)assignee.value=localGet(`sidequest:last-assignee:${state.user?.id}`);const selected=assignee?.value||'';form.querySelectorAll<HTMLElement>('[data-quick-assignee]').forEach(button=>{const active=button.dataset.quickAssignee===selected;button.classList.toggle('selected',active);button.setAttribute('aria-pressed',String(active));});form.querySelector<HTMLInputElement>('[name="title"]')?.focus();}
 function queueOfflineTask(payload:Row) { if(!state.user)return;const task={...payload,id:payload.id||crypto.randomUUID(),created_at:new Date().toISOString(),offline_pending:true};const queue=localJson<Row[]>(outboxKey(state.user.id),[]);queue.push(task);localSet(outboxKey(state.user.id),queue);if(payload.assigned_to)localSet(`sidequest:last-assignee:${state.user.id}`,payload.assigned_to);state.tasks.unshift(task);state.offline=true;cacheSnapshot();render();updateOfflineStatus();notify('Saved on this phone. It will sync when you’re back online.'); }
-async function flushTaskOutbox() { if(!supabase||!state.user||!navigator.onLine)return;const queue=localJson<Row[]>(outboxKey(state.user.id),[]);if(!queue.length){await refresh();return;}const remaining:Row[]=[];for(const task of queue){const {offline_pending,...payload}=task;const {error}=await supabase.from('tasks').upsert(payload,{onConflict:'id'});if(error){remaining.push(task);continue;}state.tasks=state.tasks.map(row=>row.id===task.id?{...row,offline_pending:false}:row);}localSet(outboxKey(state.user.id),remaining);if(remaining.length){notify('Some offline tasks are still waiting to sync.',true);return;}state.offline=false;cacheSnapshot();render();updateOfflineStatus();await refresh();notify('Your offline tasks are synced.');}
+async function flushTaskOutbox() { if(!supabase||!state.user||!navigator.onLine)return;if(!await flushListOutbox())return;const queue=localJson<Row[]>(outboxKey(state.user.id),[]);if(!queue.length){await refresh();return;}const remaining:Row[]=[];for(const task of queue){const {offline_pending,...payload}=task;const {error}=await supabase.from('tasks').upsert(payload,{onConflict:'id'});if(error){remaining.push(task);continue;}state.tasks=state.tasks.map(row=>row.id===task.id?{...row,offline_pending:false}:row);}localSet(outboxKey(state.user.id),remaining);if(remaining.length){notify('Some offline tasks are still waiting to sync.',true);return;}state.offline=false;cacheSnapshot();render();updateOfflineStatus();await refresh();notify('Your offline tasks are synced.');}
 async function undoTaskCompletion(task:Row,nextTask?:Row) { if(!supabase||!state.space)return;if(nextTask){const {error:deleteError}=await supabase.from('tasks').delete().eq('id',nextTask.id).eq('space_id',state.space.id);if(deleteError){notify('Could not undo the repeating task. Try again from Tasks.',true);return;}}const {error}=await supabase.from('tasks').update({completed:false}).eq('id',task.id).eq('space_id',state.space.id);if(error){if(nextTask)await supabase.from('tasks').insert(nextTask);notify(error.message,true);return;}await refresh();notify('Task restored to your list.');}
 async function toggleTask(id:string) { if(!supabase)return;const task=state.tasks.find(t=>t.id===id);if(!task)return;const completing=!task.completed;const before=new Set(state.tasks.map(row=>row.id));const {data,error}=await supabase.from('tasks').update({completed:completing}).eq('id',id).eq('space_id',state.space?.id).select('id').maybeSingle();if(error){notify(error.message,true);return;}if(!data){notify('This task could not be changed. Check your space access.',true);return;}await refresh();if(completing){const next=task.recurrence_rule&&task.recurrence_rule!=='none'?state.tasks.find(row=>!before.has(row.id)&&row.title===task.title&&row.recurrence_rule===task.recurrence_rule):undefined;notifyActionButton(`A little win: ${task.title} is done ✨`,'Undo',()=>undoTaskCompletion(task,next));}else notify('Back on the list. You’ve got this.'); }
 async function rescheduleOverdueTask(id:string,action:'today'|'tomorrow'|'clear') { if(!supabase||!state.space)return;const task=state.tasks.find(row=>row.id===id);if(!task)return;const due=action==='clear'?null:action==='today'?wallToIso(`${dateKey(new Date())}T23:59`):wallToIso(`${dateKey(daysFrom(todayAtNoon(),1))}T09:00`);const {data,error}=await supabase.from('tasks').update({due_at:due}).eq('id',id).eq('space_id',state.space.id).select('id').maybeSingle();if(error||!data){notify(error?.message||'Could not update this task.',true);return;}await refresh();const label=action==='clear'?'Removed the due date.':action==='today'?'Moved to later today.':'Moved to tomorrow morning.';notifyActionButton(label,'Undo',async()=>{const result=await supabase!.from('tasks').update({due_at:task.due_at}).eq('id',id).eq('space_id',state.space!.id);if(result.error){notify(result.error.message,true);return;}await refresh();notify('Due date restored.');});}
@@ -473,11 +475,37 @@ async function removeDevice(id:string,endpoint:string) { if(!supabase)return;try
 async function createList(event:SubmitEvent) { event.preventDefault();if(!supabase||!state.space||!state.user)return;const form=event.currentTarget as HTMLFormElement;const data=new FormData(form);const {error}=await supabase.from('shared_lists').insert({space_id:state.space.id,title:formValue(data,'title'),list_type:formValue(data,'list_type'),created_by:state.user.id});if(error){notify(error.message,true);return;}dialog('#list-dialog').close();form.reset();notify('Your shared list is ready.');await refresh();setView('lists'); }
 function rememberListItem(listId:string,title:string) { const key=`sidequest:recent-list:${state.user!.id}:${listId}`;localSet(key,[title,...localJson<string[]>(key,[]).filter(item=>item.toLowerCase()!==title.toLowerCase())].slice(0,8)); }
 // Adds an item and keeps the cursor in that list's box, so several items can be typed in a row.
+// List changes made with no signal are kept on this phone and replayed in order when it reconnects.
+type ListOp = { op: 'add'; id: string; list_id: string; title: string } | { op: 'tick'; id: string; completed: boolean } | { op: 'delete'; id: string } | { op: 'clear'; list_id: string };
+const listOutboxKey=(userId:string)=>`sidequest:list-outbox:${userId}`;
+function queueListOp(op:ListOp) { if(!state.user)return;const queue=localJson<ListOp[]>(listOutboxKey(state.user.id),[]);queue.push(op);localSet(listOutboxKey(state.user.id),queue);state.offline=true;cacheSnapshot();updateOfflineStatus(); }
+async function sendListOp(op:ListOp) {
+  const items=supabase!.from('shared_list_items');
+  if(op.op==='add')return (await items.upsert({id:op.id,list_id:op.list_id,title:op.title,created_by:state.user.id},{onConflict:'id'})).error;
+  if(op.op==='tick')return (await items.update({completed:op.completed}).eq('id',op.id)).error;
+  if(op.op==='delete')return (await items.delete().eq('id',op.id)).error;
+  return (await items.delete().eq('list_id',op.list_id).eq('completed',true)).error;
+}
+// Runs a list change now, or queues it when there is no connection. Returns false only on a real error.
+async function runListOp(op:ListOp) {
+  if(!supabase||!state.user)return false;
+  if(!navigator.onLine||localJson<ListOp[]>(listOutboxKey(state.user.id),[]).length){queueListOp(op);return true;}
+  const error=await sendListOp(op);
+  if(error&&isNetworkError(error)){queueListOp(op);return true;}
+  if(error){notify(error.message,true);return false;}
+  return true;
+}
+async function flushListOutbox() {
+  if(!supabase||!state.user||!navigator.onLine)return true;const key=listOutboxKey(state.user.id);const queue=localJson<ListOp[]>(key,[]);if(!queue.length)return true;
+  while(queue.length){const error=await sendListOp(queue[0]);if(error&&isNetworkError(error)){localSet(key,queue);return false;}queue.shift();localSet(key,queue);}
+  notify('Your list changes are synced.');return true;
+}
 async function insertListItem(listId:string,title:string) {
   if(!supabase||!state.user)return false;
-  const {error}=await supabase.from('shared_list_items').insert({list_id:listId,title,created_by:state.user.id});
-  if(error){notify(error.message,true);return false;}
-  rememberListItem(listId,title);await refresh();
+  const item={id:crypto.randomUUID(),list_id:listId,title,completed:false,created_by:state.user.id,created_at:new Date().toISOString()};
+  state.listItems=[...state.listItems,item];renderLists();
+  if(!await runListOp({op:'add',id:item.id,list_id:listId,title})){state.listItems=state.listItems.filter((row:Row)=>row.id!==item.id);renderLists();return false;}
+  rememberListItem(listId,title);if(!state.offline)await refresh();else{cacheSnapshot();renderLists();}
   $(`[data-list-item-form="${listId}"] input[name="title"]`)?.focus();
   return true;
 }
@@ -485,9 +513,9 @@ async function insertListItem(listId:string,title:string) {
 async function addListItem(event:SubmitEvent) { event.preventDefault();const form=event.target as HTMLFormElement;const listId=form.dataset.listItemForm;const title=formValue(new FormData(form),'title');if(!listId||!title)return;form.reset();if(!await insertListItem(listId,title))(form.elements.namedItem('title') as HTMLInputElement).value=title; }
 async function addRecentListItem(listId:string,title:string) { await insertListItem(listId,title); }
 // Ticks and removals show instantly and are rolled back if the save fails.
-async function toggleListItem(id:string) { if(!supabase)return;const item=state.listItems.find((row:Row)=>row.id===id);if(!item)return;item.completed=!item.completed;renderLists();const {error}=await supabase.from('shared_list_items').update({completed:item.completed}).eq('id',id);if(error){item.completed=!item.completed;renderLists();notify(error.message,true);} }
-async function deleteListItem(id:string) { if(!supabase)return;const before=state.listItems;state.listItems=before.filter((row:Row)=>row.id!==id);renderLists();const {error}=await supabase.from('shared_list_items').delete().eq('id',id);if(error){state.listItems=before;renderLists();notify(error.message,true);} }
-async function clearTicked(listId:string) { if(!supabase)return;const before=state.listItems;state.listItems=before.filter((row:Row)=>!(row.list_id===listId&&row.completed));renderLists();const {error}=await supabase.from('shared_list_items').delete().eq('list_id',listId).eq('completed',true);if(error){state.listItems=before;renderLists();notify(error.message,true);return;}notify('Ticked items cleared.'); }
+async function toggleListItem(id:string) { if(!supabase)return;const item=state.listItems.find((row:Row)=>row.id===id);if(!item)return;item.completed=!item.completed;renderLists();if(!await runListOp({op:'tick',id,completed:item.completed})){item.completed=!item.completed;renderLists();}else cacheSnapshot(); }
+async function deleteListItem(id:string) { if(!supabase)return;const before=state.listItems;state.listItems=before.filter((row:Row)=>row.id!==id);renderLists();if(!await runListOp({op:'delete',id})){state.listItems=before;renderLists();}else cacheSnapshot(); }
+async function clearTicked(listId:string) { if(!supabase)return;const before=state.listItems;state.listItems=before.filter((row:Row)=>!(row.list_id===listId&&row.completed));renderLists();if(!await runListOp({op:'clear',list_id:listId})){state.listItems=before;renderLists();return;}cacheSnapshot();notify('Ticked items cleared.'); }
 async function deleteList(listId:string) { if(!supabase||!state.space)return;const list=state.lists.find((row:Row)=>row.id===listId);if(!list||!window.confirm(`Delete the list “${list.title}” and everything on it?`))return;const {error}=await supabase.from('shared_lists').delete().eq('id',listId).eq('space_id',state.space.id);if(error){notify(error.message,true);return;}notify('List deleted.');await refresh(); }
 async function saveIdea(event:SubmitEvent) { event.preventDefault();if(!supabase||!state.space||!state.user)return;const form=event.currentTarget as HTMLFormElement;const data=new FormData(form);const {error}=await supabase.from('shared_ideas').insert({space_id:state.space.id,kind:formValue(data,'kind'),title:formValue(data,'title'),details:formValue(data,'details')||null,created_by:state.user.id});if(error){notify(error.message,true);return;}dialog('#idea-dialog').close();form.reset();notify('Saved for a good day.');await refresh();setView('plans');state.planTab='ideas';renderPlans(); }
 async function saveProfile(event:SubmitEvent) { event.preventDefault();if(!supabase||!state.space||!state.user)return;const form=event.currentTarget as HTMLFormElement;const displayName=formValue(new FormData(form),'display_name');if(!displayName){notify('Add a name before saving.',true);return;}const {data,error}=await supabase.from('space_members').update({display_name:displayName}).eq('space_id',state.space.id).eq('user_id',state.user.id).select('user_id').maybeSingle();if(error||!data){notify(error?.message||'Could not update your profile. Please try again.',true);return;}dialog('#profile-dialog').close();notify('Your name is updated.');await refresh(); }
