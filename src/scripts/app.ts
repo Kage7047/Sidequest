@@ -1,8 +1,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { TZ, timeFormatter, dateFormatter, longDateFormatter, dateKey, partsInWarsaw, wallToIso, wallInput, dateOnlyInput, asDay, todayAtNoon, daysFrom, addDaysKey, repeatLabels, occurrences, shiftHours, shiftTimes } from './dates';
 
 type Row = Record<string, any>;
 type Kind = 'task' | 'event' | 'project' | 'goal';
-const TZ = 'Europe/Warsaw';
 let pendingInvite = new URLSearchParams(window.location.search).get('invite');
 let pendingShortcut = new URLSearchParams(window.location.search).get('action');
 const views = ['today', 'calendar', 'tasks', 'lists', 'plans', 'shifts'];
@@ -39,29 +39,6 @@ function restoreSnapshot() { if(!state.user)return false;const saved=localJson<R
 function isNetworkError(error:unknown) { const message=String((error as any)?.message||error||'');return !navigator.onLine||/failed to fetch|network request failed|fetch failed|load failed/i.test(message); }
 function useOfflineSnapshot(error:unknown) { if(!isNetworkError(error)||!restoreSnapshot())return false;return true; }
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
-const timeFormatter = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
-const dateFormatter = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short' });
-const longDateFormatter = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-const dateKey = (date: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
-const partsInWarsaw = (date: Date) => Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date).map(p => [p.type, p.value]));
-function wallToIso(value: string) {
-  const [day, clock] = value.split('T');
-  if (!day || !clock) return null;
-  const [year, month, date] = day.split('-').map(Number); const [hour, minute] = clock.split(':').map(Number);
-  const desired = Date.UTC(year, month - 1, date, hour, minute);
-  let guess = desired;
-  for (let i = 0; i < 3; i++) {
-    const p = partsInWarsaw(new Date(guess));
-    const represented = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
-    guess += desired - represented;
-  }
-  return new Date(guess).toISOString();
-}
-function wallInput(date: Date) { const p = partsInWarsaw(date); return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`; }
-function dateOnlyInput(iso?: string | null) { return iso ? dateKey(new Date(`${iso.slice(0, 10)}T12:00:00Z`)) : ''; }
-function asDay(iso: string) { return dateKey(new Date(iso)); }
-function todayAtNoon() { const now = new Date(); return new Date(`${dateKey(now)}T12:00:00Z`); }
-function daysFrom(base: Date, amount: number) { const date = new Date(base); date.setUTCDate(date.getUTCDate() + amount); return date; }
 function greeting() { const hour = Number(partsInWarsaw(new Date()).hour); return hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'; }
 function notify(message: string, error = false) { const node = $('#notice');noticeAction=null;window.clearTimeout(noticeTimer);node.textContent = message; node.classList.toggle('error', error); node.classList.add('show'); noticeTimer=window.setTimeout(() => node.classList.remove('show'), 3200); }
 function notifyActionButton(message:string,label:string,action:()=>Promise<void>|void) { const node=$('#notice');noticeAction=action;window.clearTimeout(noticeTimer);node.replaceChildren(document.createTextNode(message+' '));const button=document.createElement('button');button.type='button';button.className='notice-action';button.dataset.noticeAction='true';button.textContent=label;node.append(button);node.classList.remove('error');node.classList.add('show');noticeTimer=window.setTimeout(()=>{node.classList.remove('show');noticeAction=null;},5000); }
@@ -83,28 +60,6 @@ type Entry = { kind: 'event' | 'busy' | 'task' | 'shift'; id: string; title: str
 const dayLabelFormatter = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' });
 function whoClass(who: string | null) { return !who ? 'who-both' : who === state.space?.owner_id ? 'who-owner' : 'who-partner'; }
 function whoName(who: string | null) { return who ? memberLabel(who) : 'Both'; }
-// Day-key arithmetic on 'YYYY-MM-DD' strings (noon UTC avoids DST edges).
-function addDaysKey(key: string, days: number) { const date = new Date(`${key}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10); }
-function daysBetween(a: string, b: string) { return Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86400000); }
-function addMonthsKey(key: string, months: number) { const [y, m, d] = key.split('-').map(Number); const date = new Date(Date.UTC(y, m - 1 + months, d, 12)); return date.getUTCDate() === d ? date.toISOString().slice(0, 10) : null; }
-const repeatLabels: Record<string, string> = { weekly: 'every week', monthly: 'every month', yearly: 'every year' };
-// Expands a repeating event into its occurrences between two day keys, keeping the Warsaw wall-clock time.
-// A month without that day (e.g. the 31st) is skipped, like most calendar apps.
-function occurrences(e: Row, from: string, to: string): Array<{ start: string; end: string | null }> {
-  const rule = e.recurrence; if (!rule || rule === 'none' || !repeatLabels[rule]) return [{ start: e.starts_at, end: e.ends_at }];
-  const firstKey = asDay(e.starts_at); const p = partsInWarsaw(new Date(e.starts_at)); const until = e.repeat_until || '9999-12-31';
-  const spanDays = e.ends_at ? daysBetween(firstKey, asDay(e.ends_at)) : 0; const spanMs = e.ends_at ? Date.parse(e.ends_at) - Date.parse(e.starts_at) : null;
-  const lookFrom = addDaysKey(from, -Math.max(spanDays, 0) - 1); const out: Array<{ start: string; end: string | null }> = [];
-  let i = rule === 'weekly' ? Math.max(0, Math.floor(daysBetween(firstKey, lookFrom) / 7)) : rule === 'monthly' ? Math.max(0, (+lookFrom.slice(0, 4) - +firstKey.slice(0, 4)) * 12 + (+lookFrom.slice(5, 7) - +firstKey.slice(5, 7)) - 1) : Math.max(0, +lookFrom.slice(0, 4) - +firstKey.slice(0, 4) - 1);
-  for (let guard = 0; guard < 600; guard++, i++) {
-    const key = rule === 'weekly' ? addDaysKey(firstKey, 7 * i) : addMonthsKey(firstKey, rule === 'monthly' ? i : 12 * i);
-    if (!key) continue; if (key > to || key > until) break; if (key < lookFrom) continue;
-    const start = wallToIso(e.all_day ? `${key}T00:00` : `${key}T${p.hour}:${p.minute}`)!;
-    const end = spanMs === null ? null : e.all_day ? wallToIso(`${addDaysKey(key, spanDays)}T00:00`) : new Date(Date.parse(start) + spanMs).toISOString();
-    out.push({ start, end });
-  }
-  return out;
-}
 function calendarEntries(includeTasks: boolean, person = 'all', from = dateKey(new Date()), to = from) {
   const events: Entry[] = state.events.flatMap(e => occurrences(e, from, to).map(o => ({ kind: 'event' as const, id: e.id, title: e.title, start: o.start, end: o.end, allDay: Boolean(e.all_day), who: e.visibility === 'personal' ? e.created_by : (e.person || null), private: e.visibility === 'personal', location: e.location || '', repeat: repeatLabels[e.recurrence] || '' })));
   const busy: Entry[] = state.busy.flatMap(b => occurrences(b, from, to).map(o => ({ kind: 'busy' as const, id: b.id, title: `${memberLabel(b.created_by)} is busy`, start: o.start, end: o.end, allDay: Boolean(b.all_day), who: b.created_by, private: true, location: '' })));
@@ -211,7 +166,6 @@ function renderPlans() {
 }
 // Work shifts and pay. Hours are paid time (length minus the unpaid break); pay is hours × the shift's rate.
 const money = new Intl.NumberFormat('pl-PL', { style: 'currency', currency: 'PLN' });
-function shiftHours(sh: Row) { return Math.max(0, (Date.parse(sh.ends_at) - Date.parse(sh.starts_at)) / 3600000 - (Number(sh.break_minutes) || 0) / 60); }
 function shiftPay(sh: Row) { return sh.hourly_rate === null || sh.hourly_rate === undefined ? null : shiftHours(sh) * Number(sh.hourly_rate); }
 function hoursLabel(hours: number) { const h = Math.floor(hours + 1e-9); const m = Math.round((hours - h) * 60); return m ? `${h} h ${m} min` : `${h} h`; }
 function shiftWeekStart(offset = state.shiftOffset) { const day = daysFrom(todayAtNoon(), offset * 7); return dateKey(daysFrom(day, -((day.getUTCDay() + 6) % 7))); }
@@ -260,8 +214,6 @@ function openShiftForm(day: string, shift?: Row) {
   $('#shift-title').textContent = shift ? 'Edit shift' : 'Add a shift'; $('#delete-shift').hidden = !shift;
   dialog('#shift-dialog').showModal();
 }
-// Ends at or before the start mean the shift runs past midnight.
-function shiftTimes(day: string, start: string, end: string) { const startsAt = wallToIso(`${day}T${start}`); const endsAt = wallToIso(`${end <= start ? addDaysKey(day, 1) : day}T${end}`); return { starts_at: startsAt, ends_at: endsAt }; }
 async function saveShift(event: SubmitEvent) {
   event.preventDefault(); if (!supabase || !state.space || !state.user) return;
   const form = event.currentTarget as HTMLFormElement; const data = new FormData(form); const rate = formValue(data, 'hourly_rate').replace(',', '.');
