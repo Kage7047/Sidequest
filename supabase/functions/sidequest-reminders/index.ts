@@ -86,5 +86,24 @@ Deno.serve(async (request: Request) => {
     if (shouldRetry) { await supabase.from('event_reminder_log').delete().eq('event_id', event.id).eq('occurs_at', event.occurs_at); retried++; }
     else sent++;
   }
+  // Morning summary and "your partner gave you…" pushes. Sent once; a failed push is not retried.
+  const { data: digests } = await supabase.rpc('claim_morning_digests');
+  const { data: partner } = await supabase.rpc('claim_partner_notifications', { p_limit: 100 });
+  const simple = [
+    ...((digests || []) as Array<{ user_id: string; body: string }>).map(d => ({ user_id: d.user_id, title: 'Today', body: d.body, url: '/Sidequest/', tag: 'morning' })),
+    ...((partner || []) as Array<{ user_id: string; title: string; body: string; url: string }>).map(n => ({ ...n, tag: `partner-${Date.now()}-${Math.random()}` })),
+  ];
+  for (const message of simple) {
+    const { data: subscriptions } = await supabase.from('push_subscriptions').select('id,user_id,endpoint,subscription').eq('user_id', message.user_id);
+    for (const saved of (subscriptions || []) as Subscription[]) {
+      try {
+        await webpush.sendNotification(saved.subscription, JSON.stringify({ title: message.title, body: message.body, tag: message.tag, url: message.url }));
+      } catch (error) {
+        const status = Number((error as { statusCode?: number }).statusCode || 0);
+        if (status === 404 || status === 410) await supabase.from('push_subscriptions').delete().eq('id', saved.id);
+      }
+    }
+    sent++;
+  }
   return respond({ sent, retried });
 });
