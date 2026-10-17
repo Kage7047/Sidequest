@@ -66,5 +66,25 @@ Deno.serve(async (request: Request) => {
       sent++;
     }
   }
+  // Event reminders: one push per occurrence to whoever the event is for.
+  const { data: events, error: eventError } = await supabase.rpc('claim_due_event_reminders', { p_limit: 100 });
+  if (eventError) return respond({ sent, retried, error: 'Could not claim event reminders' }, 500);
+  const timeFormat = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Warsaw', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  for (const event of (events || []) as Array<{ id: string; title: string; occurs_at: string; recipients: string[] }>) {
+    if (!event.recipients?.length) continue;
+    const { data: subscriptions } = await supabase.from('push_subscriptions').select('id,user_id,endpoint,subscription').in('user_id', event.recipients);
+    let shouldRetry = false;
+    for (const saved of (subscriptions || []) as Subscription[]) {
+      try {
+        await webpush.sendNotification(saved.subscription, JSON.stringify({ title: event.title, body: `Starts ${timeFormat.format(new Date(event.occurs_at))}`, tag: `event-${event.id}-${event.occurs_at}`, url: '/Sidequest/?view=calendar' }));
+      } catch (error) {
+        const status = Number((error as { statusCode?: number }).statusCode || 0);
+        if (status === 404 || status === 410) await supabase.from('push_subscriptions').delete().eq('id', saved.id);
+        else if (status >= 500 || status === 0) shouldRetry = true;
+      }
+    }
+    if (shouldRetry) { await supabase.from('event_reminder_log').delete().eq('event_id', event.id).eq('occurs_at', event.occurs_at); retried++; }
+    else sent++;
+  }
   return respond({ sent, retried });
 });

@@ -5,6 +5,7 @@ type Kind = 'task' | 'event' | 'project' | 'goal';
 const TZ = 'Europe/Warsaw';
 let pendingInvite = new URLSearchParams(window.location.search).get('invite');
 let pendingShortcut = new URLSearchParams(window.location.search).get('action');
+const views = ['today', 'calendar', 'tasks', 'lists', 'plans', 'shifts'];
 let pendingView = new URLSearchParams(window.location.search).get('view');
 let installPrompt: any = null;
 let handledUserId: string | null = null;
@@ -337,7 +338,7 @@ async function refresh() {
   $('#account-button').setAttribute('title',`Profile · ${memberLabel(state.user.id)}`);
   if(pendingShortcut==='task'){pendingShortcut=null;setView('tasks');openForm('task');}
   else if(pendingShortcut==='lists'){pendingShortcut=null;setView('lists');}
-  else if(pendingView&&['today','calendar','tasks','lists','plans','shifts'].includes(pendingView)){setView(pendingView);pendingView=null;}
+  else if(pendingView&&views.includes(pendingView)){setView(pendingView);pendingView=null;}
 }
 // Refresh when the other person changes something. Waits while someone is typing in a view.
 function scheduleLiveRefresh() { window.clearTimeout(liveTimer);liveTimer=window.setTimeout(()=>{const active=document.activeElement;if(active instanceof HTMLInputElement&&active.closest('.view')){scheduleLiveRefresh();return;}void refresh();},700); }
@@ -403,7 +404,7 @@ function openForm(kind:Kind, record?:Row) {
     const startValue=record?.starts_at?(allDay?asDay(record.starts_at):wallInput(new Date(record.starts_at))):prefill?`${prefill}T18:00`:wallInput(new Date(Date.now()+3600000));
     const endValue=record?.ends_at?(allDay?asDay(record.ends_at):wallInput(new Date(record.ends_at))):'';
     const people:Array<[string,string]>=[['','Both of us'],...state.members.map((m:Row)=>[m.user_id,memberLabel(m.user_id)] as [string,string])];
-    form.innerHTML=`<div class="form-grid">${input('title','What’s happening?','text',record?.title||'',{required:'required',maxlength:'200',placeholder:'e.g. Dinner with friends'})}${!missingColumns.has('person')?select('person','Who’s it for?',people,record?.person||''):''}${select('visibility','Who can see the details?',[['shared','Both of us'],['personal','Only me (partner sees “busy”)']],record?.visibility||'shared')}<label><span>All-day event</span><input name="all_day" type="checkbox" ${allDay?'checked':''} style="width:18px;height:18px;accent-color:#82917A" /></label>${input('starts_at','Starts',dayField,startValue,{required:'required'})}${input('ends_at',allDay?'Last day (optional)':'Ends (optional)',dayField,endValue)}${input('location','Where?','text',record?.location||'',{maxlength:'200',placeholder:'Optional'})}${!missingColumns.has('recurrence')?`${select('recurrence','Repeats',[['none','Doesn’t repeat'],['weekly','Every week'],['monthly','Every month'],['yearly','Every year']],record?.recurrence||'none')}${input('repeat_until','Repeat until (optional)','date',record?.repeat_until||'')}`:''}${textarea('description','A few details',record?.description||'')}</div>`;
+    form.innerHTML=`<div class="form-grid">${input('title','What’s happening?','text',record?.title||'',{required:'required',maxlength:'200',placeholder:'e.g. Dinner with friends'})}${!missingColumns.has('person')?select('person','Who’s it for?',people,record?.person||''):''}${select('visibility','Who can see the details?',[['shared','Both of us'],['personal','Only me (partner sees “busy”)']],record?.visibility||'shared')}<label><span>All-day event</span><input name="all_day" type="checkbox" ${allDay?'checked':''} style="width:18px;height:18px;accent-color:#82917A" /></label>${input('starts_at','Starts',dayField,startValue,{required:'required'})}${input('ends_at',allDay?'Last day (optional)':'Ends (optional)',dayField,endValue)}${input('location','Where?','text',record?.location||'',{maxlength:'200',placeholder:'Optional'})}${!missingColumns.has('recurrence')?`${select('recurrence','Repeats',[['none','Doesn’t repeat'],['weekly','Every week'],['monthly','Every month'],['yearly','Every year']],record?.recurrence||'none')}${input('repeat_until','Repeat until (optional)','date',record?.repeat_until||'')}`:''}${!missingColumns.has('remind_minutes')?select('remind_minutes','Remind',[['','No reminder'],['10','10 min before'],['60','1 hour before'],['1440','1 day before']],record?.remind_minutes==null?'':String(record.remind_minutes)):''}${textarea('description','A few details',record?.description||'')}</div>`;
   }
   if(kind==='project') form.innerHTML=`<div class="form-grid">${input('title','Project name','text',record?.title||'',{required:'required',maxlength:'160',placeholder:'e.g. Plan a weekend away'})}${select('status','Status',[['planned','Planned'],['active','Active'],['done','Done']],record?.status||'planned')}${dateInput('start_date','Start date',record?.start_date)}${dateInput('target_date','Target date',record?.target_date)}${textarea('description','A few details',record?.description||'')}</div>`;
   if(kind==='goal') form.innerHTML=`<div class="form-grid">${input('title','Goal','text',record?.title||'',{required:'required',maxlength:'160',placeholder:'e.g. Take a trip somewhere new'})}${input('progress','Progress (%)','number',String(record?.progress??0),{min:'0',max:'100',step:'1',required:'required'})}${dateInput('target_date','Target date',record?.target_date)}${textarea('description','A few details',record?.description||'')}</div>`;
@@ -413,13 +414,22 @@ function openForm(kind:Kind, record?:Row) {
   ($('#delete-item') as HTMLButtonElement).hidden=!record;
   dialog('#item-dialog').showModal();
   if(kind==='task'&&!record) requestAnimationFrame(()=>form.querySelector<HTMLInputElement>('[name="title"]')?.focus());
+  if(kind==='event'&&!record){const titleInput=form.querySelector<HTMLInputElement>('[name="title"]')!;titleInput.placeholder='e.g. Dinner Fri 19:00 both';titleInput.oninput=()=>applyQuickEvent(form as HTMLFormElement);requestAnimationFrame(()=>titleInput.focus());}
+}
+// Quick-add for events: "Dinner Fri 19:00 both" or "Dentist tomorrow 9:30 @Angie" fills the day, time and who.
+function parseQuickEvent(raw:string) { const both=/\b(both|us)\b/i.test(raw);const parsed=parseQuickTaskInput(raw.replace(/\b(both|us)\b/i,' '));return {...parsed,both}; }
+function applyQuickEvent(form:HTMLFormElement) {
+  const parsed=parseQuickEvent((form.elements.namedItem('title') as HTMLInputElement).value);if(!parsed.due)return;
+  const start=form.elements.namedItem('starts_at') as HTMLInputElement;if(start.type!=='datetime-local')return;start.value=wallInput(new Date(parsed.due));
+  const person=form.elements.namedItem('person') as HTMLSelectElement|null;if(person&&(parsed.assignee||parsed.both))person.value=parsed.assignee||'';
+  form.dataset.quickTitle=parsed.title;
 }
 function formValue(data:FormData,key:string) { return String(data.get(key)||'').trim(); }
 function parseQuickTaskInput(raw:string) {
   let title=raw.trim();let assignee:string|null=null;let due:string|null=null;
   for(const member of state.members){const token=`@${memberLabel(member.user_id).split(/\s+/)[0]}`;const found=title.split(/\s+/).find(word=>word.toLowerCase()===token.toLowerCase());if(found){assignee=member.user_id;title=title.replace(found,' ').replace(/\s+/g,' ').trim();break;}}
   const now=new Date();const base=todayAtNoon();const weekday=new Date(`${dateKey(now)}T00:00:00Z`).getUTCDay();let offset:number|null=null;
-  if(/\btoday\b/i.test(title)){offset=0;title=title.replace(/\btoday\b/i,' ');}else if(/\btomorrow\b/i.test(title)){offset=1;title=title.replace(/\btomorrow\b/i,' ');}else{const weekdays=['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];const match=title.match(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i);if(match){const target=weekdays.indexOf(match[1].toLowerCase());offset=(target-weekday+7)%7||7;title=title.replace(match[0],' ');}}
+  if(/\btoday\b/i.test(title)){offset=0;title=title.replace(/\btoday\b/i,' ');}else if(/\btomorrow\b/i.test(title)){offset=1;title=title.replace(/\btomorrow\b/i,' ');}else{const weekdays=['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];const match=title.match(/\b(sunday|sun|monday|mon|tuesday|tues|tue|wednesday|wed|thursday|thurs|thur|thu|friday|fri|saturday|sat)\b/i);if(match){const target=weekdays.findIndex(day=>day.startsWith(match[1].toLowerCase().slice(0,3)));offset=(target-weekday+7)%7||7;title=title.replace(match[0],' ');}}
   const time=title.match(/\b(?:at\s*)?(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*(am|pm)\b|\b(?:at\s*)?([01]?\d|2[0-3]):([0-5]\d)\b/i);
   if(time){let hour:number;let minute:number;if(time[3]){hour=Number(time[1])%12+(time[3].toLowerCase()==='pm'?12:0);minute=Number(time[2]||0);}else{hour=Number(time[4]);minute=Number(time[5]);}title=title.replace(time[0],' ');if(offset===null)offset=0;const day=daysFrom(base,offset);due=wallToIso(`${dateKey(day)}T${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')}`);}else if(offset!==null){const day=daysFrom(base,offset);due=wallToIso(`${dateKey(day)}T09:00`);}
   return {title:title.replace(/\s+/g,' ').trim(),assignee,due};
@@ -428,12 +438,12 @@ async function saveItem(event:SubmitEvent) {
   event.preventDefault(); if(!supabase||!state.user||!state.space)return;
   const form=event.currentTarget as HTMLFormElement; const data=new FormData(form);const kind=$('#form-kind').textContent?.replace(/^(New|Edit) /,'') as Kind;const record=state.editing;const payload:Row={space_id:state.space.id};
   const addAnother=kind==='task'&&!record&&data.get('add_another')==='on';
-  const title=formValue(data,'title');if(!title){notify('Add a title before saving.',true);return;}
+  let title=formValue(data,'title');if(kind==='event'&&!record&&form.dataset.quickTitle&&parseQuickEvent(title).title===form.dataset.quickTitle){title=form.dataset.quickTitle;}delete form.dataset.quickTitle;if(!title){notify('Add a title before saving.',true);return;}
   const quick=kind==='task'&&!record?parseQuickTaskInput(title):null;payload.title=quick?quick.title:title;payload.created_by=state.user.id;
   if(kind==='task'){payload.description=formValue(data,'description')||null;payload.priority=formValue(data,'priority');payload.project_id=formValue(data,'project_id')||null;payload.assigned_to=quick?.assignee||formValue(data,'assigned_to')||null;payload.recurrence_rule=formValue(data,'recurrence_rule')||'none';payload.rotate_assignee=data.get('rotate_assignee')==='on';const due=formValue(data,'due_at');const reminder=formValue(data,'reminder_at');payload.due_at=due?wallToIso(due):(quick?.due||null);payload.reminder_at=reminder?wallToIso(reminder):null;payload.reminder_sent_at=null;payload.reminder_claimed_at=null;payload.completed=record?.completed??false;}
   if(kind==='task'&&!payload.title){notify('Add a task description before any date or name tags.',true);return;}
   if(kind==='task'&&!record)payload.id=crypto.randomUUID();
-  if(kind==='event'){payload.description=formValue(data,'description')||null;payload.location=formValue(data,'location')||null;payload.visibility=formValue(data,'visibility');const allDay=data.get('all_day')==='on';const start=formValue(data,'starts_at');const end=formValue(data,'ends_at');payload.starts_at=wallToIso(allDay?`${start}T00:00`:start);payload.ends_at=end?wallToIso(allDay?`${end}T00:00`:end):null;payload.all_day=allDay;if(data.has('person'))payload.person=formValue(data,'person')||null;if(data.has('recurrence')){payload.recurrence=formValue(data,'recurrence')||'none';payload.repeat_until=payload.recurrence==='none'?null:formValue(data,'repeat_until')||null;if(payload.repeat_until&&payload.repeat_until<start.slice(0,10)){notify('“Repeat until” needs to be after the first date.',true);return;}}if(payload.ends_at&&payload.ends_at<payload.starts_at){notify('The end time needs to be after the start time.',true);return;}}
+  if(kind==='event'){payload.description=formValue(data,'description')||null;payload.location=formValue(data,'location')||null;payload.visibility=formValue(data,'visibility');const allDay=data.get('all_day')==='on';const start=formValue(data,'starts_at');const end=formValue(data,'ends_at');payload.starts_at=wallToIso(allDay?`${start}T00:00`:start);payload.ends_at=end?wallToIso(allDay?`${end}T00:00`:end):null;payload.all_day=allDay;if(data.has('person'))payload.person=formValue(data,'person')||null;if(data.has('remind_minutes'))payload.remind_minutes=formValue(data,'remind_minutes')?Number(formValue(data,'remind_minutes')):null;if(data.has('recurrence')){payload.recurrence=formValue(data,'recurrence')||'none';payload.repeat_until=payload.recurrence==='none'?null:formValue(data,'repeat_until')||null;if(payload.repeat_until&&payload.repeat_until<start.slice(0,10)){notify('“Repeat until” needs to be after the first date.',true);return;}}if(payload.ends_at&&payload.ends_at<payload.starts_at){notify('The end time needs to be after the start time.',true);return;}}
   if(kind==='project'){payload.description=formValue(data,'description')||null;payload.status=formValue(data,'status');payload.start_date=formValue(data,'start_date')||null;payload.target_date=formValue(data,'target_date')||null;if(payload.start_date&&payload.target_date&&payload.target_date<payload.start_date){notify('The target date must be after the start date.',true);return;}}
   if(kind==='goal'){payload.description=formValue(data,'description')||null;payload.target_date=formValue(data,'target_date')||null;payload.progress=Number(formValue(data,'progress'));if(!Number.isInteger(payload.progress)||payload.progress<0||payload.progress>100){notify('Progress must be a whole number from 0 to 100.',true);return;}}
   const table=kind==='task'?'tasks':kind==='event'?'events':kind==='project'?'projects':'goals';let result;
@@ -443,7 +453,7 @@ async function saveItem(event:SubmitEvent) {
   else result=await write();
   // Before the events.person migration is applied, save without it and stop offering the field.
   const wantedRepeat=payload.recurrence&&payload.recurrence!=='none';
-  for(const column of ['person','recurrence','repeat_until']){if(result?.error&&column in payload&&result.error.message.includes(column)){missingColumns.add(column);if(column==='recurrence')missingColumns.add('repeat_until');delete payload[column];if(column==='recurrence')delete payload.repeat_until;result=await write();}}
+  for(const column of ['person','recurrence','repeat_until','remind_minutes']){if(result?.error&&column in payload&&result.error.message.includes(column)){missingColumns.add(column);if(column==='recurrence')missingColumns.add('repeat_until');delete payload[column];if(column==='recurrence')delete payload.repeat_until;result=await write();}}
   const repeatDropped=Boolean(wantedRepeat&&missingColumns.has('recurrence'));
   if(result?.error){if(kind==='task'&&!record&&isNetworkError(result.error)){if(!state.space)restoreSnapshot();queueOfflineTask(payload);if(addAnother)continueAddingTask(form);else{dialog('#item-dialog').close();form.reset();}return;}notify(result.error.message,true);return;}if(record&&!result?.data){notify('This item could not be updated. Check your space access.',true);return;}
   if(kind==='task'&&payload.assigned_to)localSet(`sidequest:last-assignee:${state.user.id}`,payload.assigned_to);if(addAnother){form.reset();continueAddingTask(form);await refresh();notify('Task added. Ready for another.');return;}dialog('#item-dialog').close();form.reset();const goalReached=kind==='goal'&&record&&record.progress<100&&payload.progress===100;if(repeatDropped)notify('Saved, but repeating events need a database update first.',true);else notify(goalReached?`You reached “${title}” together. Take a moment to enjoy it ✨`:record?'Changes saved.':`${kind[0].toUpperCase()+kind.slice(1)} added.`);await refresh();
@@ -580,7 +590,7 @@ function bindEvents() {
 }
 async function init() {
   state.calendarMode=localGet('sidequest:calendar-mode')==='month'?'month':'week';state.showTasks=localGet('sidequest:calendar-tasks')!=='0';state.taskPerson=localGet('sidequest:task-person')||'all';
-  bindEvents();setView('today');
+  bindEvents();setView(pendingView&&views.includes(pendingView)?pendingView:'today');
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&state.space&&Date.now()-lastRefresh>30000)void refresh();});
   window.addEventListener('online',()=>{void flushTaskOutbox();});
   window.addEventListener('offline',()=>{state.offline=true;updateOfflineStatus();});

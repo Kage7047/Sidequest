@@ -11,6 +11,7 @@
   "icons": [{ "src": "/Sidequest/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }],
   "shortcuts": [
     { "name": "Add a task", "short_name": "Add task", "description": "Capture something to do", "url": "/Sidequest/?action=task", "icons": [{ "src": "/Sidequest/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }] },
+    { "name": "Shifts", "short_name": "Shifts", "description": "See both of your work shifts", "url": "/Sidequest/?view=shifts", "icons": [{ "src": "/Sidequest/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }] },
     { "name": "Shared lists", "short_name": "Lists", "description": "Open your shared lists", "url": "/Sidequest/?action=lists", "icons": [{ "src": "/Sidequest/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }] }
   ]
 }
