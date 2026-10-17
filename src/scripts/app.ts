@@ -5,7 +5,7 @@ type Row = Record<string, any>;
 type Kind = 'task' | 'event' | 'project' | 'goal';
 let pendingInvite = new URLSearchParams(window.location.search).get('invite');
 let pendingShortcut = new URLSearchParams(window.location.search).get('action');
-const views = ['today', 'calendar', 'tasks', 'lists', 'plans', 'shifts'];
+const views = ['today', 'calendar', 'tasks', 'lists', 'plans', 'shifts', 'week'];
 let pendingView = new URLSearchParams(window.location.search).get('view');
 let installPrompt: any = null;
 let handledUserId: string | null = null;
@@ -110,9 +110,9 @@ function freeTogether(days = 14) {
   // Round "now" up to the next half hour so suggestions start at a sensible time.
   return freeWindows(busy, from, days, Math.ceil(Date.now() / 1800000) * 1800000);
 }
-function freeTogetherCard(limit: number) {
+function freeTogetherCard(limit: number, days = 14) {
   if (state.members.length < 2) return '';
-  const slots = freeTogether().slice(0, limit);
+  const slots = freeTogether(days).slice(0, limit);
   const rows = slots.map(slot => { const start = new Date(slot.start); const hours = Math.round((slot.end - slot.start) / 1800000) / 2; return `<div class="row-item free-slot"><div class="row-content"><div class="row-title">${escapeHtml(itemDate(start.toISOString()))} · ${itemTime(start.toISOString())}–${itemTime(new Date(slot.end).toISOString())}</div><div class="row-meta">${hours} h free together</div></div><button class="button secondary small" data-plan-slot="${wallInput(start)}">Plan</button></div>`; }).join('');
   return `<section>${sectionTitle('Free together', slots.length)}<div class="surface">${rows ? `<div class="list">${rows}</div>` : empty('No shared free time soon', 'Nothing of two hours or more in the next two weeks.', '☼')}</div></section>`;
 }
@@ -120,7 +120,7 @@ function renderToday() {
   const todayKey = dateKey(new Date()); const now = Date.now(); const todayEvents = entriesOn(calendarEntries(false), todayKey).filter(e => e.allDay || (e.end ? Date.parse(e.end) : Date.parse(e.start) + 3600000) > now);
   const tasks = state.tasks.filter(t => !t.completed && (!state.focusOnly || Boolean(t.due_at && asDay(t.due_at) <= todayKey))).sort((a,b) => (a.due_at || '').localeCompare(b.due_at || ''));
   const upcomingProjects = state.projects.filter(p => p.status === 'active').slice(0,3); const openGoals = state.goals.filter(g => g.progress < 100).slice(0,3);
-  $('#view-today').innerHTML = `${heading(`${greeting()}, ${escapeHtml(memberLabel(state.user?.id)||'you')}.`, longDateFormatter.format(new Date()))}<div class="toolbar focus-toolbar"><span class="muted">${state.focusOnly?'Due today and overdue':'All open tasks'}</span><button class="filter-chip ${state.focusOnly?'selected':''}" data-toggle-focus>${state.focusOnly?'Show all open tasks':'Focus on today'}</button></div><div class="today-grid"><div class="stack"><section>${sectionTitle('Today’s events', todayEvents.length, '<button class="inline-add" data-create="event">+ Add event</button>')}<div class="surface">${todayEvents.length ? `<div class="list">${todayEvents.map(e=>entryRow(e,todayKey)).join('')}</div>` : empty('Nothing on the calendar yet', 'A little room to breathe. Add something you’re looking forward to.', '☼')}</div></section><section>${sectionTitle(state.focusOnly?'Due and overdue':'Open tasks', tasks.length, '<button class="inline-add" data-create="task">+ Add task</button>')}<div class="surface">${tasks.length ? `<div class="list">${tasks.map(taskRow).join('')}</div>` : empty(state.focusOnly?'Nothing due right now':'You’re all caught up', state.focusOnly?'Switch to all open tasks to see the rest of your list.':'Add a task when something comes to mind.', '✓')}</div></section>${comingUp()}</div><div class="stack">${freeTogetherCard(3)}<section>${sectionTitle('In motion', upcomingProjects.length)}<div class="surface soft">${upcomingProjects.length ? upcomingProjects.map(p => `<div class="plan-card"><div class="plan-title">${escapeHtml(p.title)}</div><div class="plan-meta">${p.target_date ? `Until ${shortDate(p.target_date)}` : 'Project'}</div></div>`).join('') : empty('Projects will live here', 'Start a shared project when you’re ready.', '↗')}</div></section><section>${sectionTitle('Growing toward', openGoals.length)}<div class="surface">${openGoals.length ? openGoals.map(g => `<div class="plan-card"><div class="plan-card-top"><span class="plan-title">${escapeHtml(g.title)}</span><span class="plan-meta">${g.progress}%</span></div><div class="progress-track"><span style="width:${g.progress}%"></span></div></div>`).join('') : empty('Your goals, at your pace', 'A small step counts too.', '◎')}</div></section>${completionActivity()}<section class="surface soft"><div class="section-heading"><h2>A small reminder</h2><span class="sidebar-sparkle">✳</span></div><p class="muted" style="margin:0">You don’t have to figure everything out today. Just keep choosing the next kind thing.</p></section></div></div>`;
+  $('#view-today').innerHTML = `${heading(`${greeting()}, ${escapeHtml(memberLabel(state.user?.id)||'you')}.`, longDateFormatter.format(new Date()))}<div class="toolbar focus-toolbar"><button class="filter-chip week-link" data-view="week">${new Date().getDay()===0?'✦ Plan the week ahead':'Week ahead →'}</button><span class="muted">${state.focusOnly?'Due today and overdue':'All open tasks'}</span><button class="filter-chip ${state.focusOnly?'selected':''}" data-toggle-focus>${state.focusOnly?'Show all open tasks':'Focus on today'}</button></div><div class="today-grid"><div class="stack"><section>${sectionTitle('Today’s events', todayEvents.length, '<button class="inline-add" data-create="event">+ Add event</button>')}<div class="surface">${todayEvents.length ? `<div class="list">${todayEvents.map(e=>entryRow(e,todayKey)).join('')}</div>` : empty('Nothing on the calendar yet', 'A little room to breathe. Add something you’re looking forward to.', '☼')}</div></section><section>${sectionTitle(state.focusOnly?'Due and overdue':'Open tasks', tasks.length, '<button class="inline-add" data-create="task">+ Add task</button>')}<div class="surface">${tasks.length ? `<div class="list">${tasks.map(taskRow).join('')}</div>` : empty(state.focusOnly?'Nothing due right now':'You’re all caught up', state.focusOnly?'Switch to all open tasks to see the rest of your list.':'Add a task when something comes to mind.', '✓')}</div></section>${comingUp()}</div><div class="stack">${freeTogetherCard(3)}<section>${sectionTitle('In motion', upcomingProjects.length)}<div class="surface soft">${upcomingProjects.length ? upcomingProjects.map(p => `<div class="plan-card"><div class="plan-title">${escapeHtml(p.title)}</div><div class="plan-meta">${p.target_date ? `Until ${shortDate(p.target_date)}` : 'Project'}</div></div>`).join('') : empty('Projects will live here', 'Start a shared project when you’re ready.', '↗')}</div></section><section>${sectionTitle('Growing toward', openGoals.length)}<div class="surface">${openGoals.length ? openGoals.map(g => `<div class="plan-card"><div class="plan-card-top"><span class="plan-title">${escapeHtml(g.title)}</span><span class="plan-meta">${g.progress}%</span></div><div class="progress-track"><span style="width:${g.progress}%"></span></div></div>`).join('') : empty('Your goals, at your pace', 'A small step counts too.', '◎')}</div></section>${completionActivity()}<section class="surface soft"><div class="section-heading"><h2>A small reminder</h2><span class="sidebar-sparkle">✳</span></div><p class="muted" style="margin:0">You don’t have to figure everything out today. Just keep choosing the next kind thing.</p></section></div></div>`;
 }
 function renderCalendar() {
   const month = state.calendarMode === 'month'; let entries: Entry[] = []; const todayKey = dateKey(new Date());
@@ -252,7 +252,29 @@ async function copyLastWeekShifts() {
   const { error } = await supabase.from('shifts').insert(rows); if (error) { notify(error.message, true); return; }
   notify(`Copied ${rows.length} ${rows.length === 1 ? 'shift' : 'shifts'}.`); await refresh();
 }
-function render() { renderToday(); renderCalendar(); renderTasks(); renderLists(); renderPlans(); renderShifts(); }
+// Week ahead: the next seven days for both of you, what's carried over, who has how much on,
+// and a nudge to put a date idea into a free slot. Meant for a Sunday-evening look together.
+function renderWeek() {
+  const node = $('#view-week'); if (!node) return;
+  const from = dateKey(new Date()); const to = addDaysKey(from, 6); const fromIso = wallToIso(`${from}T00:00`)!; const toIso = wallToIso(`${addDaysKey(to, 1)}T00:00`)!;
+  const entries = calendarEntries(true, 'all', from, to);
+  const overdue = state.tasks.filter(t => !t.completed && t.due_at && asDay(t.due_at) < from);
+  const load = state.members.map((m: Row) => {
+    const id = m.user_id;
+    const events = calendarEntries(false, 'all', from, to).filter(e => e.kind === 'event' && e.who === id).length;
+    const shiftRows = state.shifts.filter(sh => sh.person === id && sh.starts_at >= fromIso && sh.starts_at < toIso);
+    const tasks = state.tasks.filter(t => !t.completed && t.assigned_to === id && t.due_at && asDay(t.due_at) <= to).length;
+    const hours = shiftRows.reduce((sum, sh) => sum + shiftHours(sh), 0);
+    return { id, events, tasks, hours, shifts: shiftRows.length, score: events + tasks + hours / 4 };
+  });
+  const max = Math.max(1, ...load.map(l => l.score));
+  const loadCard = state.members.length > 1 ? `<section>${sectionTitle('On each plate', 0)}<div class="surface load-card">${load.map(l => `<div class="load-row ${whoClass(l.id)}"><strong>${escapeHtml(memberLabel(l.id))}</strong><span class="load-bar"><span style="width:${Math.round(l.score / max * 100)}%"></span></span><small>${[l.shifts ? `${hoursLabel(l.hours)} work` : '', `${l.events} ${l.events === 1 ? 'event' : 'events'}`, `${l.tasks} ${l.tasks === 1 ? 'task' : 'tasks'}`].filter(Boolean).join(' · ')}</small></div>`).join('')}${(() => { const [a, b] = load; if (!a || !b) return ''; const busier = a.score > b.score * 1.5 ? a : b.score > a.score * 1.5 ? b : null; return busier ? `<p class="muted tiny">${escapeHtml(memberLabel(busier.id))} has a lot on this week. Maybe take something off their list?</p>` : '<p class="muted tiny">Nicely balanced this week.</p>'; })()}</div></section>` : '';
+  const ideas = state.ideas.filter((i: Row) => !i.completed).sort((a: Row, b: Row) => Number(b.kind === 'date') - Number(a.kind === 'date')).slice(0, 3);
+  const ideaCard = ideas.length && state.members.length > 1 ? `<section>${sectionTitle('Plan one together', ideas.length)}<div class="surface"><div class="list">${ideas.map((i: Row) => `<div class="row-item free-slot"><div class="row-content"><div class="row-title">${escapeHtml(i.title)}</div><div class="row-meta">${i.kind === 'date' ? 'Date idea' : i.kind === 'place' ? 'Place to visit' : 'Something to try'}</div></div><button class="button secondary small" data-plan-idea="${i.id}">Plan</button></div>`).join('')}</div></div></section>` : '';
+  const carry = overdue.length ? `<section>${sectionTitle('Carried over', overdue.length)}<div class="surface"><div class="list">${overdue.map(taskRow).join('')}</div></div></section>` : '';
+  node.innerHTML = `${heading('The week ahead', `${shortDate(from)} – ${shortDate(to)} · a few minutes together to see what’s coming.`)}<div class="today-grid"><div class="stack">${carry}<section>${sectionTitle('Day by day', 0)}<div class="surface">${Array.from({ length: 7 }, (_, i) => dayAgenda(addDaysKey(from, i), entries)).join('')}</div></section></div><div class="stack">${loadCard}${freeTogetherCard(4, 7)}${ideaCard}</div></div>`;
+}
+function render() { renderToday(); renderCalendar(); renderTasks(); renderLists(); renderPlans(); renderShifts(); renderWeek(); }
 async function refresh() {
   if (!supabase || !state.user) return;
   // Only the first load shows a loading screen; later refreshes update in place. When
@@ -554,6 +576,7 @@ function bindEvents() {
     const shiftStep=target.closest<HTMLElement>('[data-shift-step]');if(shiftStep){const step=Number(shiftStep.dataset.shiftStep);state.shiftOffset=step?state.shiftOffset+step:0;renderShifts();return;}
     const shiftPerson=target.closest<HTMLElement>('[data-shift-person]');if(shiftPerson){state.shiftPerson=shiftPerson.dataset.shiftPerson||'all';renderShifts();return;}
     if(target.closest('[data-copy-shifts]')){await copyLastWeekShifts();return;}
+    const planIdea=target.closest<HTMLElement>('[data-plan-idea]');if(planIdea){const idea=state.ideas.find((i:Row)=>i.id===planIdea.dataset.planIdea);const slot=freeTogether(14)[0];state.prefillDay=slot?wallInput(new Date(slot.start)):undefined;openForm('event');const form=document.querySelector<HTMLFormElement>('#item-form')!;(form.elements.namedItem('title') as HTMLInputElement).value=idea?.title||'';const person=form.elements.namedItem('person') as HTMLSelectElement|null;if(person)person.value='';return;}
     const planSlot=target.closest<HTMLElement>('[data-plan-slot]');if(planSlot){state.prefillDay=planSlot.dataset.planSlot;openForm('event');const person=document.querySelector<HTMLSelectElement>('#item-form select[name="person"]');if(person)person.value='';return;}
     const onDay=target.closest<HTMLElement>('[data-create-on-day]');if(onDay){state.prefillDay=onDay.dataset.createOnDay;openForm('event');}
   });
