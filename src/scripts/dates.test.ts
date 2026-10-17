@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDaysKey, addMonthsKey, asDay, occurrences, shiftHours, shiftTimes, wallInput, wallToIso } from './dates';
+import { addDaysKey, addMonthsKey, asDay, freeWindows, occurrences, shiftHours, shiftTimes, wallInput, wallToIso } from './dates';
 
 describe('Warsaw wall time', () => {
   it('converts summer and winter wall times to UTC', () => {
@@ -47,5 +47,20 @@ describe('shifts', () => {
   });
   it('counts the extra hour on the night the clocks go back', () => {
     expect(shiftHours(shiftTimes('2026-10-24', '22:00', '06:00'))).toBe(9);
+  });
+});
+
+describe('free time together', () => {
+  const at = (v: string) => Date.parse(wallToIso(v)!);
+  it('offers weekday evenings and whole weekend days', () => {
+    const slots = freeWindows([], '2026-10-16', 2, 0); // Fri, Sat
+    expect(slots.map(s => [wallInput(new Date(s.start)), wallInput(new Date(s.end))])).toEqual([['2026-10-16T18:00', '2026-10-16T22:00'], ['2026-10-17T10:00', '2026-10-17T22:00']]);
+  });
+  it('cuts around busy time and drops gaps under two hours', () => {
+    const busy = [{ start: at('2026-10-17T09:00'), end: at('2026-10-17T11:30') }, { start: at('2026-10-17T13:00'), end: at('2026-10-17T18:00') }];
+    expect(freeWindows(busy, '2026-10-17', 1, 0).map(s => wallInput(new Date(s.start)))).toEqual(['2026-10-17T18:00']);
+  });
+  it('starts no earlier than now', () => {
+    expect(wallInput(new Date(freeWindows([], '2026-10-17', 1, at('2026-10-17T15:10'))[0].start))).toBe('2026-10-17T15:10');
   });
 });
