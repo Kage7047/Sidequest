@@ -14,6 +14,7 @@ import Layout from '../layouts/Layout.astro';
           <button class="nav-item" data-view="calendar"><span class="nav-icon">▦</span>Calendar</button>
           <button class="nav-item" data-view="tasks"><span class="nav-icon">✓</span>Tasks</button>
           <button class="nav-item" data-view="lists"><span class="nav-icon">☷</span>Lists</button>
+          <button class="nav-item" data-view="shifts"><span class="nav-icon">◷</span>Shifts</button>
           <button class="nav-item" data-view="plans"><span class="nav-icon">◇</span>Our plans</button>
         </nav>
         <div class="sidebar-bottom"><p class="sidebar-note">Little by little,<br />a life together.</p><span class="sidebar-sparkle">✳</span></div>
@@ -25,6 +26,7 @@ import Layout from '../layouts/Layout.astro';
         <section id="view-calendar" class="view"></section>
         <section id="view-tasks" class="view"></section>
         <section id="view-lists" class="view"></section>
+        <section id="view-shifts" class="view"></section>
         <section id="view-plans" class="view"></section>
       </main>
     </div>
@@ -33,6 +35,7 @@ import Layout from '../layouts/Layout.astro';
       <button class="nav-item" data-view="calendar"><span class="nav-icon">▦</span><small>Calendar</small></button>
       <button class="nav-item" data-view="tasks"><span class="nav-icon">✓</span><small>Tasks</small></button>
       <button class="nav-item" data-view="lists"><span class="nav-icon">☷</span><small>Lists</small></button>
+      <button class="nav-item" data-view="shifts"><span class="nav-icon">◷</span><small>Shifts</small></button>
       <button class="nav-item" data-view="plans"><span class="nav-icon">◇</span><small>Plans</small></button>
     </nav>
     <button id="add-button" class="add-fab" aria-label="Add a task" title="Add a task">＋</button>
@@ -45,6 +48,7 @@ import Layout from '../layouts/Layout.astro';
     <dialog id="add-dialog" class="dialog add-dialog"><div class="dialog-card"><button class="close-button" type="button" data-close aria-label="Close">×</button><p class="eyebrow">Make it happen</p><h2>What would you like to add?</h2><div class="add-options"><button data-create="task"><span>✓</span><strong>Task</strong><small>One thing to do</small></button><button data-create="event"><span>▦</span><strong>Event</strong><small>Something on the calendar</small></button><button data-create="project"><span>↗</span><strong>Project</strong><small>A plan in motion</small></button><button data-create="goal"><span>◎</span><strong>Goal</strong><small>Something to grow toward</small></button></div></div></dialog>
     <dialog id="list-dialog" class="dialog"><form id="list-form" class="dialog-card"><button class="close-button" type="button" data-close aria-label="Close">×</button><p class="eyebrow">Keep it together</p><h2>Start a shared list</h2><label>List name<input name="title" maxlength="100" required placeholder="e.g. Sunday groceries" /></label><label>Kind<select name="list_type"><option value="grocery">Groceries</option><option value="packing">Packing</option><option value="custom">Something else</option></select></label><button class="button primary full">Create list</button></form></dialog>
     <dialog id="idea-dialog" class="dialog"><form id="idea-form" class="dialog-card"><button class="close-button" type="button" data-close aria-label="Close">×</button><p class="eyebrow">Save for a good day</p><h2>Add to our someday list</h2><label>Idea<input name="title" maxlength="200" required placeholder="e.g. Try the little bakery by the river" /></label><label>Kind<select name="kind"><option value="date">Date idea</option><option value="place">Place to visit</option><option value="activity">Something to try</option></select></label><label>Note (optional)<textarea name="details" maxlength="1000" placeholder="A little detail to remember"></textarea></label><button class="button primary full">Save idea</button></form></dialog>
+    <dialog id="shift-dialog" class="dialog"><form id="shift-form" class="dialog-card"><button class="close-button" type="button" data-close aria-label="Close">×</button><p class="eyebrow">Work</p><h2 id="shift-title">Add a shift</h2><div class="form-grid"><label>Who<select name="person" required></select></label><label>Job or place<input name="job" maxlength="120" list="shift-jobs" placeholder="e.g. Bakery" /><datalist id="shift-jobs"></datalist></label><label class="wide">Day<input name="day" type="date" required /></label><label>Starts<input name="start" type="time" required /></label><label>Ends<input name="end" type="time" required /></label><label>Unpaid break (min)<input name="break_minutes" type="number" min="0" max="600" step="5" value="0" /></label><label>Hourly rate (zł)<input name="hourly_rate" type="number" min="0" step="0.01" inputmode="decimal" placeholder="optional" /></label><label class="wide">Note (optional)<input name="note" maxlength="1000" /></label></div><p class="muted tiny">An end time before the start means the shift runs past midnight.</p><button class="button primary full">Save shift</button><button id="delete-shift" class="text-button" type="button" hidden>Remove this shift</button></form></dialog>
     <dialog id="install-dialog" class="dialog"><div class="dialog-card"><button class="close-button" type="button" data-close aria-label="Close">×</button><p class="eyebrow">Take Sidequest with you</p><h2>Add to your home screen</h2><ol class="install-steps"><li><strong>iPhone:</strong> Open this page in Safari, tap Share, then <em>Add to Home Screen</em>.</li><li><strong>Android:</strong> Open this page in Chrome, tap ⋮, then <em>Install app</em> or <em>Add to Home screen</em>.</li></ol><p class="muted">This gives you an app icon and, on Android, quick actions from the icon. A live glanceable widget requires a native iPhone and Android app, which we can build as a separate step.</p></div></dialog>
   </div>
 </Layout>
