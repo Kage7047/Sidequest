@@ -10,7 +10,8 @@
     "check": "npm run tailwind:build && astro check",
     "tailwind:build": "tailwindcss -i src/styles/tailwind.input.css -o .generated/tailwind.css",
     "tailwind:watch": "tailwindcss -i src/styles/tailwind.input.css -o .generated/tailwind.css --watch",
-    "astro:dev": "astro dev"
+    "astro:dev": "astro dev",
+    "test": "vitest run"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.57.4",
@@ -20,6 +21,7 @@
     "@astrojs/check": "0.9.4",
     "@tailwindcss/cli": "4.3.0",
     "tailwindcss": "4.3.0",
-    "typescript": "5.9.2"
+    "typescript": "5.9.2",
+    "vitest": "^3.2.4"
   }
 }
