@@ -15,8 +15,8 @@ const configured = Boolean(import.meta.env.PUBLIC_SUPABASE_URL && import.meta.en
 const supabase: SupabaseClient | null = configured ? createClient(import.meta.env.PUBLIC_SUPABASE_URL, import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
 }) : null;
-const state: { user: any; space: Row | null; events: Row[]; busy: Row[]; tasks: Row[]; projects: Row[]; goals: Row[]; members: Row[]; lists: Row[]; ideas: Row[]; listItems: Row[]; activity: Row[]; pushDevices: Row[]; view: string; calendarOffset: number; calendarMode: 'week' | 'month'; calendarPerson: string; showTasks: boolean; selectedDay: string; prefillDay?: string; taskPerson: string; taskFilter: string; planTab: string; focusOnly: boolean; offline: boolean; editing?: Row } = {
-  user: null, space: null, events: [], busy: [], tasks: [], projects: [], goals: [], members: [], lists: [], ideas: [], listItems: [], activity: [], pushDevices: [], view: 'today', calendarOffset: 0, calendarMode: 'week', calendarPerson: 'all', showTasks: true, selectedDay: '', taskPerson: 'all', taskFilter: 'open', planTab: 'projects', focusOnly: true, offline: false,
+const state: { user: any; space: Row | null; events: Row[]; busy: Row[]; tasks: Row[]; projects: Row[]; goals: Row[]; members: Row[]; lists: Row[]; ideas: Row[]; listItems: Row[]; activity: Row[]; shifts: Row[]; shiftOffset: number; shiftPerson: string; editingShift?: Row; pushDevices: Row[]; view: string; calendarOffset: number; calendarMode: 'week' | 'month'; calendarPerson: string; showTasks: boolean; selectedDay: string; prefillDay?: string; taskPerson: string; taskFilter: string; planTab: string; focusOnly: boolean; offline: boolean; editing?: Row } = {
+  user: null, space: null, events: [], busy: [], tasks: [], projects: [], goals: [], members: [], lists: [], ideas: [], listItems: [], activity: [], shifts: [], shiftOffset: 0, shiftPerson: 'all', pushDevices: [], view: 'today', calendarOffset: 0, calendarMode: 'week', calendarPerson: 'all', showTasks: true, selectedDay: '', taskPerson: 'all', taskFilter: 'open', planTab: 'projects', focusOnly: true, offline: false,
 };
 let refreshSeq = 0;
 let lastRefresh = 0;
@@ -33,8 +33,8 @@ function localSet(key:string,value:unknown) { try { localStorage.setItem(key,typ
 const snapshotKey=(userId:string)=>`sidequest:snapshot:${userId}`;
 const outboxKey=(userId:string)=>`sidequest:task-outbox:${userId}`;
 function updateOfflineStatus() { const banner=$('#offline-status');if(!banner)return;banner.hidden=!state.offline;banner.textContent=state.offline?'Offline — new tasks are saved on this phone and will sync when you reconnect.':''; }
-function cacheSnapshot() { if(!state.user||!state.space)return;localSet(snapshotKey(state.user.id),{space:state.space,events:state.events,busy:state.busy,tasks:state.tasks.filter(task=>!task.offline_pending),projects:state.projects,goals:state.goals,members:state.members,lists:state.lists,ideas:state.ideas,listItems:state.listItems,activity:state.activity}); }
-function restoreSnapshot() { if(!state.user)return false;const saved=localJson<Row|null>(snapshotKey(state.user.id),null);if(!saved?.space)return false;const space=saved.space as Row;state.space=space;state.events=saved.events||[];state.busy=saved.busy||[];state.tasks=[...(saved.tasks||[]),...localJson<Row[]>(outboxKey(state.user.id),[])];state.projects=saved.projects||[];state.goals=saved.goals||[];state.members=saved.members||[];state.lists=saved.lists||[];state.ideas=saved.ideas||[];state.listItems=saved.listItems||[];state.activity=saved.activity||[];state.offline=true;$('#space-name').textContent=space.name||'Our space';render();updateOfflineStatus();return true; }
+function cacheSnapshot() { if(!state.user||!state.space)return;localSet(snapshotKey(state.user.id),{space:state.space,events:state.events,busy:state.busy,tasks:state.tasks.filter(task=>!task.offline_pending),projects:state.projects,goals:state.goals,members:state.members,lists:state.lists,ideas:state.ideas,listItems:state.listItems,activity:state.activity,shifts:state.shifts}); }
+function restoreSnapshot() { if(!state.user)return false;const saved=localJson<Row|null>(snapshotKey(state.user.id),null);if(!saved?.space)return false;const space=saved.space as Row;state.space=space;state.events=saved.events||[];state.busy=saved.busy||[];state.tasks=[...(saved.tasks||[]),...localJson<Row[]>(outboxKey(state.user.id),[])];state.projects=saved.projects||[];state.goals=saved.goals||[];state.members=saved.members||[];state.lists=saved.lists||[];state.ideas=saved.ideas||[];state.listItems=saved.listItems||[];state.activity=saved.activity||[];state.shifts=saved.shifts||[];state.offline=true;$('#space-name').textContent=space.name||'Our space';render();updateOfflineStatus();return true; }
 function isNetworkError(error:unknown) { const message=String((error as any)?.message||error||'');return !navigator.onLine||/failed to fetch|network request failed|fetch failed|load failed/i.test(message); }
 function useOfflineSnapshot(error:unknown) { if(!isNetworkError(error)||!restoreSnapshot())return false;return true; }
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
@@ -78,7 +78,7 @@ function memberOptions(_selected:string|null|undefined):Array<[string,string]> {
 function profileInitials(name:string) { return name.trim().split(/\s+/).slice(0,2).map(part=>part[0]?.toUpperCase()||'').join('')||'S'; }
 // Calendar entries: events, the partner's private events as "busy" blocks, and tasks with a due date.
 // `who` is the person it belongs to; null means both of you.
-type Entry = { kind: 'event' | 'busy' | 'task'; id: string; title: string; start: string; end: string | null; allDay: boolean; who: string | null; private: boolean; location: string; repeat?: string };
+type Entry = { kind: 'event' | 'busy' | 'task' | 'shift'; id: string; title: string; start: string; end: string | null; allDay: boolean; who: string | null; private: boolean; location: string; repeat?: string };
 const dayLabelFormatter = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long' });
 function whoClass(who: string | null) { return !who ? 'who-both' : who === state.space?.owner_id ? 'who-owner' : 'who-partner'; }
 function whoName(who: string | null) { return who ? memberLabel(who) : 'Both'; }
@@ -108,7 +108,8 @@ function calendarEntries(includeTasks: boolean, person = 'all', from = dateKey(n
   const events: Entry[] = state.events.flatMap(e => occurrences(e, from, to).map(o => ({ kind: 'event' as const, id: e.id, title: e.title, start: o.start, end: o.end, allDay: Boolean(e.all_day), who: e.visibility === 'personal' ? e.created_by : (e.person || null), private: e.visibility === 'personal', location: e.location || '', repeat: repeatLabels[e.recurrence] || '' })));
   const busy: Entry[] = state.busy.flatMap(b => occurrences(b, from, to).map(o => ({ kind: 'busy' as const, id: b.id, title: `${memberLabel(b.created_by)} is busy`, start: o.start, end: o.end, allDay: Boolean(b.all_day), who: b.created_by, private: true, location: '' })));
   const tasks: Entry[] = includeTasks ? state.tasks.filter(t => !t.completed && t.due_at && !t.offline_pending).map(t => ({ kind: 'task', id: t.id, title: t.title, start: t.due_at, end: null, allDay: false, who: t.assigned_to || null, private: false, location: '' })) : [];
-  return [...events, ...busy, ...tasks].filter(entry => person === 'all' || !entry.who || entry.who === person);
+  const shifts: Entry[] = state.shifts.filter(sh => asDay(sh.ends_at) >= from && asDay(sh.starts_at) <= to).map(sh => ({ kind: 'shift', id: sh.id, title: `Work${sh.job ? ` · ${sh.job}` : ''}`, start: sh.starts_at, end: sh.ends_at, allDay: false, who: sh.person, private: false, location: '' }));
+  return [...events, ...busy, ...shifts, ...tasks].filter(entry => person === 'all' || !entry.who || entry.who === person);
 }
 // Days an entry covers. All-day ends are stored as midnight of the last day; timed ends are exclusive.
 function entryDays(entry: Entry) { const first = asDay(entry.start); if (!entry.end) return { first, last: first }; const last = entry.allDay ? asDay(entry.end) : asDay(new Date(Date.parse(entry.end) - 60000).toISOString()); return { first, last: last < first ? first : last }; }
@@ -126,7 +127,7 @@ function entryRow(entry: Entry, key: string) {
   const meta = [entry.kind === 'task' ? `Task due ${itemTime(entry.start)}` : range, multiDay, entry.location, entry.repeat ? `↻ ${entry.repeat}` : ''].filter(Boolean).join(' · ');
   const tag = entry.kind === 'busy' ? 'Private' : `${whoName(entry.who)}${entry.private ? ' · private' : ''}`;
   const lead = entry.kind === 'task' ? `<button class="check-action" data-toggle-task="${entry.id}" aria-label="Complete ${escapeHtml(entry.title)}"><span class="checkbox"></span></button>` : `<div class="event-time">${time}</div>`;
-  const edit = entry.kind === 'busy' ? '' : `<button class="icon-button" data-edit="${entry.kind}" data-id="${entry.id}" aria-label="Edit ${escapeHtml(entry.title)}">···</button>`;
+  const edit = entry.kind === 'busy' ? '' : entry.kind === 'shift' ? `<button class="icon-button" data-edit-shift="${entry.id}" aria-label="Edit shift">···</button>` : `<button class="icon-button" data-edit="${entry.kind}" data-id="${entry.id}" aria-label="Edit ${escapeHtml(entry.title)}">···</button>`;
   return `<div class="row-item cal-entry ${whoClass(entry.who)} ${entry.kind}">${lead}<div class="row-content"><div class="row-title">${escapeHtml(entry.title)}</div>${meta ? `<div class="row-meta">${escapeHtml(meta)}</div>` : ''}</div><span class="tag who-tag">${escapeHtml(tag)}</span>${edit}</div>`;
 }
 function dayAgenda(key: string, entries: Entry[]) {
@@ -207,7 +208,85 @@ function renderPlans() {
   if(!isProjects&&!isGoals){const ideas=state.ideas.filter((idea:Row)=>!idea.completed);const done=state.ideas.filter((idea:Row)=>idea.completed);$('#view-plans').innerHTML=`${heading('Our plans','The things you’re building and the places you hope to go.')}<div class="toolbar">${tabs}<button class="button primary small" data-open-idea-dialog>+ Save an idea</button></div><div class="idea-grid">${ideas.length?ideas.map((idea:Row)=>`<article class="surface idea-card"><span class="idea-doodle" aria-hidden="true">${idea.kind==='date'?'✿':idea.kind==='place'?'⌖':'✦'}</span><div class="idea-kind">${idea.kind==='date'?'Date idea':idea.kind==='place'?'Place to visit':'Something to try'}</div><h2>${escapeHtml(idea.title)}</h2>${idea.details?`<p>${escapeHtml(idea.details)}</p>`:''}<div class="idea-actions"><button class="text-button" data-toggle-idea="${idea.id}">We did this ✓</button><button class="icon-button" data-delete-idea="${idea.id}" aria-label="Remove idea">×</button></div></article>`).join(''):empty('Keep a little room for someday','Save a date idea, a place, or something you’d like to try together.','✿')}${done.length?`<section class="done-ideas"><h2>Lovely memories</h2>${done.map((idea:Row)=>`<button class="done-idea" data-toggle-idea="${idea.id}">✓ ${escapeHtml(idea.title)}</button>`).join('')}</section>`:''}</div>`;return;}
   $('#view-plans').innerHTML=`${heading('Our plans', 'The things you’re building and the places you hope to go.')}<div class="toolbar">${tabs}<button class="button primary small" data-create="${isProjects?'project':'goal'}">+ Add ${isProjects?'project':'goal'}</button></div><div class="plan-grid">${records.length?records.map(isProjects?projectCard:goalCard).join(''):empty(isProjects?'A project starts with an idea':'Give a hope somewhere to grow',isProjects?'Plan something you’d like to do together.':'Choose a goal you can work toward together.',isProjects?'↗':'◎')}</div>`;
 }
-function render() { renderToday(); renderCalendar(); renderTasks(); renderLists(); renderPlans(); }
+// Work shifts and pay. Hours are paid time (length minus the unpaid break); pay is hours × the shift's rate.
+const money = new Intl.NumberFormat('pl-PL', { style: 'currency', currency: 'PLN' });
+function shiftHours(sh: Row) { return Math.max(0, (Date.parse(sh.ends_at) - Date.parse(sh.starts_at)) / 3600000 - (Number(sh.break_minutes) || 0) / 60); }
+function shiftPay(sh: Row) { return sh.hourly_rate === null || sh.hourly_rate === undefined ? null : shiftHours(sh) * Number(sh.hourly_rate); }
+function hoursLabel(hours: number) { const h = Math.floor(hours + 1e-9); const m = Math.round((hours - h) * 60); return m ? `${h} h ${m} min` : `${h} h`; }
+function shiftWeekStart(offset = state.shiftOffset) { const day = daysFrom(todayAtNoon(), offset * 7); return dateKey(daysFrom(day, -((day.getUTCDay() + 6) % 7))); }
+function shiftTotals(rows: Row[]) { const hours = rows.reduce((sum, sh) => sum + shiftHours(sh), 0); const paid = rows.map(shiftPay).filter((v): v is number => v !== null); return { hours, pay: paid.reduce((a, b) => a + b, 0), unrated: rows.length - paid.length, count: rows.length }; }
+function totalsCard(label: string, rows: Row[]) {
+  const people = state.members.map((m: Row) => m.user_id);
+  return `<div class="surface shift-totals"><p class="eyebrow">${label}</p>${people.map(id => { const t = shiftTotals(rows.filter(sh => sh.person === id)); return `<div class="shift-total-row ${whoClass(id)}"><span class="who-dot ${whoClass(id)}"></span><strong>${escapeHtml(memberLabel(id))}</strong><span>${t.count ? `${hoursLabel(t.hours)} · ${t.count} ${t.count === 1 ? 'shift' : 'shifts'}` : 'No shifts'}</span><b>${t.count ? money.format(t.pay) : '—'}</b>${t.unrated ? `<small>${t.unrated} without a rate</small>` : ''}</div>`; }).join('')}</div>`;
+}
+function renderShifts() {
+  const node = $('#view-shifts'); if (!node) return;
+  const start = shiftWeekStart(); const end = addDaysKey(start, 6); const todayKey = dateKey(new Date());
+  const inRange = (sh: Row, a: string, b: string) => { const day = asDay(sh.starts_at); return day >= a && day <= b; };
+  const visible = (sh: Row) => state.shiftPerson === 'all' || sh.person === state.shiftPerson;
+  const week = state.shifts.filter(sh => inRange(sh, start, end));
+  const month = start.slice(0, 7); const monthRows = state.shifts.filter(sh => asDay(sh.starts_at).slice(0, 7) === month);
+  const monthName = new Intl.DateTimeFormat('en-GB', { month: 'long', timeZone: 'UTC' }).format(new Date(`${start}T12:00:00Z`));
+  const people: Array<[string, string]> = [['all', 'Both'], ...state.members.map((m: Row) => [m.user_id, memberLabel(m.user_id)] as [string, string])];
+  const filters = `<div class="filters person-filter">${people.map(([id, name]) => `<button class="filter-chip ${state.shiftPerson === id ? 'selected' : ''}" data-shift-person="${escapeHtml(id)}" aria-pressed="${state.shiftPerson === id}"><span class="who-dot ${id === 'all' ? 'who-both' : whoClass(id)}"></span>${escapeHtml(name)}</button>`).join('')}</div>`;
+  const label = `${shortDate(start)} – ${shortDate(end)}`;
+  const days = Array.from({ length: 7 }, (_, i) => addDaysKey(start, i)).map(key => {
+    const rows = week.filter(sh => asDay(sh.starts_at) === key && visible(sh));
+    return `<section class="agenda-day ${key === todayKey ? 'is-today' : ''}"><div class="agenda-day-head"><p class="agenda-day-label">${dayLabelFormatter.format(new Date(`${key}T12:00:00Z`))}${key === todayKey ? ' · Today' : ''}</p><button class="inline-add" data-add-shift="${key}">+ Shift</button></div>${rows.length ? `<div class="list">${rows.map(sh => { const pay = shiftPay(sh); const meta = [hoursLabel(shiftHours(sh)), sh.break_minutes ? `${sh.break_minutes} min break` : '', pay !== null ? `${money.format(pay)} (${money.format(Number(sh.hourly_rate))}/h)` : '', sh.note || ''].filter(Boolean).join(' · '); return `<div class="row-item cal-entry shift ${whoClass(sh.person)}"><div class="event-time">${itemTime(sh.starts_at)}–${itemTime(sh.ends_at)}</div><div class="row-content"><div class="row-title">${escapeHtml(sh.job || 'Work')}</div><div class="row-meta">${escapeHtml(meta)}</div></div><span class="tag who-tag">${escapeHtml(memberLabel(sh.person))}</span><button class="icon-button" data-edit-shift="${sh.id}" aria-label="Edit shift">···</button></div>`; }).join('')}</div>` : `<p class="agenda-free">No shifts</p>`}</section>`;
+  }).join('');
+  const prevWeek = state.shifts.filter(sh => inRange(sh, addDaysKey(start, -7), addDaysKey(start, -1)) && visible(sh));
+  const copy = !week.filter(visible).length && prevWeek.length ? `<button class="button secondary small" data-copy-shifts>Copy last week (${prevWeek.length})</button>` : '';
+  const mine = shiftTotals(week.filter(sh => sh.person === state.user?.id));
+  const lastRate = state.shifts.filter(sh => sh.person === state.user?.id && sh.hourly_rate !== null).slice(-1)[0]?.hourly_rate ?? '';
+  node.innerHTML = `${heading('Shifts', 'Who’s working when, and what it adds up to.')}<div class="toolbar calendar-toolbar">${filters}<div class="date-nav"><button data-shift-step="-1" aria-label="Previous week">‹</button><span class="date-label">${label}</span><button data-shift-step="1" aria-label="Next week">›</button></div></div><div class="today-grid"><div class="stack"><div class="surface">${days}</div><div class="toolbar"><button class="button primary small" data-add-shift="${state.shiftOffset ? start : todayKey}">+ Add shift</button>${copy}${state.shiftOffset ? '<button class="text-button" data-shift-step="0">Back to this week</button>' : ''}</div></div><div class="stack">${totalsCard('This week', week)}${totalsCard(monthName, monthRows)}<form class="surface pay-calc" data-pay-calc><div class="section-heading"><h2>Pay calculator</h2></div><label>Hours<input name="hours" type="number" min="0" step="0.25" inputmode="decimal" value="${mine.hours ? +mine.hours.toFixed(2) : ''}" placeholder="e.g. 32" /></label><label>Hourly rate (zł)<input name="rate" type="number" min="0" step="0.01" inputmode="decimal" value="${escapeHtml(lastRate)}" placeholder="e.g. 31.40" /></label><label>Overtime hours (× 1.5)<input name="overtime" type="number" min="0" step="0.25" inputmode="decimal" placeholder="0" /></label><p class="pay-result" data-pay-result></p><p class="muted tiny">Gross, before tax. Hours start from your shifts this week.</p></form></div></div>`;
+  updatePayCalc();
+}
+function updatePayCalc() {
+  const form = document.querySelector<HTMLFormElement>('[data-pay-calc]'); if (!form) return;
+  const data = new FormData(form); const num = (key: string) => Math.max(0, Number(String(data.get(key) || '').replace(',', '.')) || 0);
+  const hours = num('hours'); const rate = num('rate'); const overtime = num('overtime'); const total = hours * rate + overtime * rate * 1.5;
+  form.querySelector('[data-pay-result]')!.innerHTML = rate && (hours || overtime) ? `<strong>${money.format(total)}</strong><span>${hoursLabel(hours + overtime)} · ≈ ${money.format(total * 52 / 12)} a month if every week is like this</span>` : '<span>Enter hours and a rate.</span>';
+}
+function openShiftForm(day: string, shift?: Row) {
+  state.editingShift = shift; const form = $('#shift-form') as HTMLFormElement; form.reset();
+  const person = form.elements.namedItem('person') as HTMLSelectElement;
+  person.innerHTML = state.members.map((m: Row) => `<option value="${escapeHtml(m.user_id)}">${escapeHtml(memberLabel(m.user_id))}</option>`).join('');
+  person.value = shift?.person || (state.shiftPerson !== 'all' ? state.shiftPerson : state.user?.id || '');
+  $('#shift-jobs').innerHTML = [...new Set(state.shifts.map(sh => sh.job).filter(Boolean))].map(job => `<option value="${escapeHtml(job)}"></option>`).join('');
+  const set = (name: string, value: string) => { (form.elements.namedItem(name) as HTMLInputElement).value = value; };
+  if (shift) { const s = wallInput(new Date(shift.starts_at)); const e = wallInput(new Date(shift.ends_at)); set('job', shift.job || ''); set('day', s.slice(0, 10)); set('start', s.slice(11)); set('end', e.slice(11)); set('break_minutes', String(shift.break_minutes || 0)); set('hourly_rate', shift.hourly_rate ?? ''); set('note', shift.note || ''); }
+  else { const last = state.shifts.filter(sh => sh.person === person.value).slice(-1)[0]; set('day', day); set('job', last?.job || ''); set('start', last ? wallInput(new Date(last.starts_at)).slice(11) : '09:00'); set('end', last ? wallInput(new Date(last.ends_at)).slice(11) : '17:00'); set('break_minutes', String(last?.break_minutes || 0)); set('hourly_rate', last?.hourly_rate ?? ''); }
+  $('#shift-title').textContent = shift ? 'Edit shift' : 'Add a shift'; $('#delete-shift').hidden = !shift;
+  dialog('#shift-dialog').showModal();
+}
+// Ends at or before the start mean the shift runs past midnight.
+function shiftTimes(day: string, start: string, end: string) { const startsAt = wallToIso(`${day}T${start}`); const endsAt = wallToIso(`${end <= start ? addDaysKey(day, 1) : day}T${end}`); return { starts_at: startsAt, ends_at: endsAt }; }
+async function saveShift(event: SubmitEvent) {
+  event.preventDefault(); if (!supabase || !state.space || !state.user) return;
+  const form = event.currentTarget as HTMLFormElement; const data = new FormData(form); const rate = formValue(data, 'hourly_rate').replace(',', '.');
+  const times = shiftTimes(formValue(data, 'day'), formValue(data, 'start'), formValue(data, 'end'));
+  if (!times.starts_at || !times.ends_at) { notify('Pick a day and both times.', true); return; }
+  const row = { person: formValue(data, 'person'), job: formValue(data, 'job'), ...times, break_minutes: Number(formValue(data, 'break_minutes')) || 0, hourly_rate: rate === '' ? null : Number(rate), note: formValue(data, 'note') || null };
+  const editing = state.editingShift;
+  const { error } = editing ? await supabase.from('shifts').update(row).eq('id', editing.id) : await supabase.from('shifts').insert({ ...row, space_id: state.space.id, created_by: state.user.id });
+  if (error) { notify(/relation .*shifts|schema cache/i.test(error.message) ? 'Shifts need the new database migration first.' : error.message, true); return; }
+  dialog('#shift-dialog').close(); notify(editing ? 'Shift updated.' : 'Shift added.'); await refresh();
+}
+async function deleteShift() {
+  const shift = state.editingShift; if (!supabase || !shift) return;
+  const { error } = await supabase.from('shifts').delete().eq('id', shift.id); if (error) { notify(error.message, true); return; }
+  dialog('#shift-dialog').close(); notify('Shift removed.'); await refresh();
+}
+async function copyLastWeekShifts() {
+  if (!supabase || !state.space || !state.user) return; const start = shiftWeekStart();
+  const rows = state.shifts.filter(sh => { const day = asDay(sh.starts_at); return day >= addDaysKey(start, -7) && day < start && (state.shiftPerson === 'all' || sh.person === state.shiftPerson); }).map(sh => {
+    const s = wallInput(new Date(sh.starts_at)); const e = wallInput(new Date(sh.ends_at));
+    return { space_id: state.space!.id, created_by: state.user.id, person: sh.person, job: sh.job, break_minutes: sh.break_minutes, hourly_rate: sh.hourly_rate, note: sh.note, ...shiftTimes(addDaysKey(s.slice(0, 10), 7), s.slice(11), e.slice(11)) };
+  });
+  const { error } = await supabase.from('shifts').insert(rows); if (error) { notify(error.message, true); return; }
+  notify(`Copied ${rows.length} ${rows.length === 1 ? 'shift' : 'shifts'}.`); await refresh();
+}
+function render() { renderToday(); renderCalendar(); renderTasks(); renderLists(); renderPlans(); renderShifts(); }
 async function refresh() {
   if (!supabase || !state.user) return;
   // Only the first load shows a loading screen; later refreshes update in place. When
@@ -232,12 +311,13 @@ async function refresh() {
   ]);
   const failure=[events,tasks,projects,goals].find(result=>result.error)?.error;
   if(failure){if(useOfflineSnapshot(failure))return;notify(failure.message,true);return;}
-  const [members, lists, ideas, activity, busy] = await Promise.all([
+  const [members, lists, ideas, activity, busy, shifts] = await Promise.all([
     supabase.from('space_members').select('user_id,display_name,role').eq('space_id',space.id),
     supabase.from('shared_lists').select('*').eq('space_id',space.id).order('created_at',{ascending:false}),
     supabase.from('shared_ideas').select('*').eq('space_id',space.id).order('created_at',{ascending:false}),
     supabase.from('completion_activity').select('id,item_type,title,completed_by,completed_at').eq('space_id',space.id).order('completed_at',{ascending:false}).limit(12),
     supabase.rpc('partner_busy',{p_space_id:space.id}),
+    supabase.from('shifts').select('*').eq('space_id',space.id).gte('starts_at',new Date(Date.now()-400*86400000).toISOString()).order('starts_at'),
   ]);
   const extraFailure=[members,lists,ideas,activity].find(result=>result.error)?.error;
   if(extraFailure){if(useOfflineSnapshot(extraFailure))return;notify(extraFailure.message,true);return;}
@@ -248,6 +328,8 @@ async function refresh() {
   lastRefresh=Date.now();subscribeLive(space.id);
   // partner_busy is optional: before its migration is applied the calendar just has no busy blocks.
   state.busy=busy.error?[]:(busy.data as Row[])||[];
+  // shifts is optional too, until its migration is applied.
+  state.shifts=shifts.error?[]:(shifts.data as Row[])||[];
   state.events=events.data||[];state.tasks=tasks.data||[];state.projects=projects.data||[];state.goals=goals.data||[];
   state.members=members.data||[];state.lists=lists.data||[];state.ideas=ideas.data||[];state.listItems=items.data||[];state.activity=activity.data||[];state.offline=false;render();updateOfflineStatus();cacheSnapshot();
   $('#account-button').textContent=profileInitials(memberLabel(state.user.id));
@@ -255,7 +337,7 @@ async function refresh() {
   $('#account-button').setAttribute('title',`Profile · ${memberLabel(state.user.id)}`);
   if(pendingShortcut==='task'){pendingShortcut=null;setView('tasks');openForm('task');}
   else if(pendingShortcut==='lists'){pendingShortcut=null;setView('lists');}
-  else if(pendingView&&['today','calendar','tasks','lists','plans'].includes(pendingView)){setView(pendingView);pendingView=null;}
+  else if(pendingView&&['today','calendar','tasks','lists','plans','shifts'].includes(pendingView)){setView(pendingView);pendingView=null;}
 }
 // Refresh when the other person changes something. Waits while someone is typing in a view.
 function scheduleLiveRefresh() { window.clearTimeout(liveTimer);liveTimer=window.setTimeout(()=>{const active=document.activeElement;if(active instanceof HTMLInputElement&&active.closest('.view')){scheduleLiveRefresh();return;}void refresh();},700); }
@@ -263,7 +345,7 @@ function subscribeLive(spaceId:string) {
   if(!supabase||liveSpaceId===spaceId)return;
   stopLive();liveSpaceId=spaceId;
   let channel=supabase.channel(`sidequest-${spaceId}`);
-  for(const table of ['events','tasks','projects','goals','shared_lists','shared_ideas'])channel=channel.on('postgres_changes',{event:'*',schema:'public',table,filter:`space_id=eq.${spaceId}`},scheduleLiveRefresh);
+  for(const table of ['events','tasks','projects','goals','shared_lists','shared_ideas','shifts'])channel=channel.on('postgres_changes',{event:'*',schema:'public',table,filter:`space_id=eq.${spaceId}`},scheduleLiveRefresh);
   liveChannel=channel.on('postgres_changes',{event:'*',schema:'public',table:'shared_list_items'},scheduleLiveRefresh).subscribe();
 }
 function stopLive() { if(supabase&&liveChannel)void supabase.removeChannel(liveChannel);liveChannel=null;liveSpaceId=''; }
@@ -282,7 +364,7 @@ async function handleAuthenticatedUser(user: Row | null) {
     $('#account-button').hidden = true;
     $('#invite-button').hidden = true;
     stopLive();
-    state.space = null; state.events = []; state.busy = []; state.tasks = []; state.projects = []; state.goals = [];
+    state.space = null; state.events = []; state.busy = []; state.shifts = []; state.tasks = []; state.projects = []; state.goals = [];
     state.members=[];state.lists=[];state.ideas=[];state.listItems=[];state.activity=[];
     render();
     return;
@@ -464,6 +546,11 @@ function bindEvents() {
     const person=target.closest<HTMLElement>('[data-calendar-person]');if(person){state.calendarPerson=person.dataset.calendarPerson||'all';renderCalendar();return;}
     if(target.closest('[data-toggle-cal-tasks]')){state.showTasks=!state.showTasks;localSet('sidequest:calendar-tasks',state.showTasks?'1':'0');renderCalendar();return;}
     const pick=target.closest<HTMLElement>('[data-calendar-select]');if(pick){state.selectedDay=pick.dataset.calendarSelect!;renderCalendar();return;}
+    const addShift=target.closest<HTMLElement>('[data-add-shift]');if(addShift){openShiftForm(addShift.dataset.addShift||dateKey(new Date()));return;}
+    const editShift=target.closest<HTMLElement>('[data-edit-shift]');if(editShift){const shift=state.shifts.find(sh=>sh.id===editShift.dataset.editShift);if(shift)openShiftForm(asDay(shift.starts_at),shift);return;}
+    const shiftStep=target.closest<HTMLElement>('[data-shift-step]');if(shiftStep){const step=Number(shiftStep.dataset.shiftStep);state.shiftOffset=step?state.shiftOffset+step:0;renderShifts();return;}
+    const shiftPerson=target.closest<HTMLElement>('[data-shift-person]');if(shiftPerson){state.shiftPerson=shiftPerson.dataset.shiftPerson||'all';renderShifts();return;}
+    if(target.closest('[data-copy-shifts]')){await copyLastWeekShifts();return;}
     const onDay=target.closest<HTMLElement>('[data-create-on-day]');if(onDay){state.prefillDay=onDay.dataset.createOnDay;openForm('event');}
   });
   document.addEventListener('submit',async event=>{const target=event.target as HTMLElement;if(target.matches('[data-list-item-form]'))await addListItem(event as SubmitEvent);});
@@ -474,6 +561,10 @@ function bindEvents() {
   $('#item-form').addEventListener('submit',saveItem);
   $('#list-form').addEventListener('submit',createList);
   $('#idea-form').addEventListener('submit',saveIdea);
+  $('#shift-form').addEventListener('submit',saveShift);
+  $('#delete-shift').addEventListener('click',deleteShift);
+  document.addEventListener('input',event=>{if((event.target as HTMLElement).closest('[data-pay-calc]'))updatePayCalc();});
+  document.addEventListener('submit',event=>{if((event.target as HTMLElement).matches('[data-pay-calc]'))event.preventDefault();});
   $('#delete-item').addEventListener('click',deleteCurrentItem);
   $('#install-button').addEventListener('click',async()=>{if(installPrompt){await installPrompt.prompt();const choice=await installPrompt.userChoice;installPrompt=null;if(choice?.outcome==='accepted')$('#install-button').hidden=true;}else dialog('#install-dialog').showModal();});
   $('#account-button').addEventListener('click',()=>{if(!state.user)return;($('#profile-name') as HTMLInputElement).value=memberLabel(state.user.id);dialog('#profile-dialog').showModal();});
