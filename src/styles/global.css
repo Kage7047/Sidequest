@@ -159,3 +159,4 @@ body{background:radial-gradient(ellipse at 84% 4%,#e8e5d8 0,transparent 34rem),#
 .pay-calc label{display:grid;gap:6px;margin:0 0 11px;font-size:11px;font-weight:700;color:#64665d}.pay-calc input{width:100%;border:1px solid #e4ddce;background:#fbf8f0;border-radius:10px;padding:10px 11px;font-size:13px;outline:none}.pay-calc input:focus{border-color:#879274;box-shadow:0 0 0 3px #87927424}.pay-result{display:grid;gap:3px;margin:4px 0 6px;font-size:11px;color:#77796f}.pay-result strong{font-size:24px;letter-spacing:-.04em;color:#35382F}
 .cal-entry.shift .row-title::before{content:'◷ ';color:var(--who)}.month-chip.shift{font-weight:700}
 @media(max-width:780px){.mobile-nav .nav-item{min-width:0;padding:6px 6px}}
+.free-calendar{margin-top:22px}.free-slot{align-items:center}

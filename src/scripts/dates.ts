@@ -50,3 +50,20 @@ export function occurrences(e: Row, from: string, to: string): Array<{ start: st
 export function shiftHours(sh: Row) { return Math.max(0, (Date.parse(sh.ends_at) - Date.parse(sh.starts_at)) / 3600000 - (Number(sh.break_minutes) || 0) / 60); }
 // Ends at or before the start mean the shift runs past midnight.
 export function shiftTimes(day: string, start: string, end: string) { const startsAt = wallToIso(`${day}T${start}`); const endsAt = wallToIso(`${end <= start ? addDaysKey(day, 1) : day}T${end}`); return { starts_at: startsAt, ends_at: endsAt }; }
+// Free time for both: evenings 18:00–22:00 on weekdays, 10:00–22:00 at weekends, minus anything
+// busy for either of you. Returns windows of at least `minHours`, soonest first.
+export type Interval = { start: number; end: number };
+export function freeWindows(busy: Interval[], fromKey: string, days: number, now = Date.now(), minHours = 2) {
+  const sorted = [...busy].sort((a, b) => a.start - b.start); const out: Interval[] = [];
+  for (let i = 0; i < days; i++) {
+    const key = addDaysKey(fromKey, i); const weekday = new Date(`${key}T12:00:00Z`).getUTCDay(); const weekend = weekday === 0 || weekday === 6;
+    let start = Math.max(Date.parse(wallToIso(`${key}T${weekend ? '10:00' : '18:00'}`)!), now); const end = Date.parse(wallToIso(`${key}T22:00`)!);
+    for (const b of sorted) {
+      if (b.end <= start || b.start >= end) continue;
+      if (b.start - start >= minHours * 3600000) out.push({ start, end: b.start });
+      start = Math.max(start, b.end);
+    }
+    if (end - start >= minHours * 3600000) out.push({ start, end });
+  }
+  return out;
+}
