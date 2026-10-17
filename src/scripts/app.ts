@@ -414,7 +414,7 @@ function openForm(kind:Kind, record?:Row) {
   ($('#delete-item') as HTMLButtonElement).hidden=!record;
   dialog('#item-dialog').showModal();
   if(kind==='task'&&!record) requestAnimationFrame(()=>form.querySelector<HTMLInputElement>('[name="title"]')?.focus());
-  if(kind==='event'&&!record){const titleInput=form.querySelector<HTMLInputElement>('[name="title"]')!;titleInput.placeholder='e.g. Dinner Fri 19:00 both';titleInput.oninput=()=>applyQuickEvent(form as HTMLFormElement);requestAnimationFrame(()=>titleInput.focus());}
+  if(kind==='event'&&!record){const titleInput=form.querySelector<HTMLInputElement>('[name="title"]')!;titleInput.placeholder='e.g. Dinner Fri 19:00 both';titleInput.oninput=()=>applyQuickEvent(titleInput.form!);requestAnimationFrame(()=>titleInput.focus());}
 }
 // Quick-add for events: "Dinner Fri 19:00 both" or "Dentist tomorrow 9:30 @Angie" fills the day, time and who.
 function parseQuickEvent(raw:string) { const both=/\b(both|us)\b/i.test(raw);const parsed=parseQuickTaskInput(raw.replace(/\b(both|us)\b/i,' '));return {...parsed,both}; }
