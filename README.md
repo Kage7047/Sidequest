@@ -79,7 +79,7 @@ The GitHub Actions workflow runs both checks before deployment. The PWA service 
 
 ## Current limits
 
-- Supabase Authentication URL Configuration must include the Pages redirect URL above; otherwise email confirmation may not return to the app. Real account flows need to be confirmed with your and Angie’s accounts.
+- Supabase Authentication URL Configuration must include the Pages redirect URL above; otherwise email confirmation may not return to the app. Real account flows need to be confirmed with both partners' accounts.
 - Background push delivery is best effort and the scheduled poll runs every five minutes; operating-system notification settings still apply.
 - Calendar has week and month views, colours per person, partner "busy" blocks and tasks with due dates. There are no recurring events or offline event editing.
 - Phone calendar sync is one-way (Sidequest → Google/Apple) through a private subscription link from the profile dialog. Google refreshes subscribed calendars every few hours.
