@@ -2,6 +2,8 @@
 
 Your life, on the same page. Sidequest is a small, private shared planner for two partners. It is an Astro static site that talks directly to Supabase Auth and the existing PostgreSQL tables. PostgreSQL row-level security remains the authorization boundary.
 
+![Sidequest Today view, with the fictional demo data](docs/today.png)
+
 ## What is here
 
 - Today overview with today's events, overdue and due-today tasks, active projects, and goals.
@@ -61,6 +63,21 @@ The workflow in `.github/workflows/deploy.yml` builds and deploys `main` to GitH
 Both values are intentionally public client configuration. Do not put a service-role key or database password in Actions variables, secrets, or the application.
 
 For the first GitHub Pages publish, set repository **Settings → Pages → Build and deployment → Source** to **GitHub Actions**. Then check the latest `Deploy Sidequest to GitHub Pages` run in Actions.
+
+## Working on the UI without the real project
+
+`scripts/mock-supabase.mjs` stands in for the Supabase endpoints the app uses, with fictional
+data (Sam and Alex), so the interface can be changed and tested without touching real accounts:
+
+```sh
+npm run mock                     # http://127.0.0.1:54321, login sam@example.com / sidequest-demo
+PUBLIC_SUPABASE_URL=http://127.0.0.1:54321 PUBLIC_SUPABASE_PUBLISHABLE_KEY=mock npm run dev
+npm run e2e                      # production build + Playwright on desktop and phone sizes
+```
+
+The end-to-end suite signs in, opens every view, completes a task, adds a list item and creates
+a task, and fails on any page error. It runs on every pull request and before every deploy, so a
+change that breaks the app never reaches GitHub Pages.
 
 ## Checks
 
