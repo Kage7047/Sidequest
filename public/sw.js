@@ -1,4 +1,4 @@
-const CACHE = 'sidequest-shell-v2';
+const CACHE = 'sidequest-shell-v3';
 const SHELL = ['/Sidequest/', '/Sidequest/manifest.webmanifest', '/Sidequest/icons/icon.svg'];
 self.addEventListener('push', event => {
   let payload = {};

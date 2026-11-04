@@ -7,3 +7,8 @@ dist/
 .env.*
 !.env.example
 .DS_Store
+
+# end-to-end runs
+.e2e-dist/
+test-results/
+playwright-report/
